@@ -1,0 +1,7 @@
+# SITE_ADDRESS=":80" serves on the bare IP (pre-domain).
+# Once DNS points at the droplet, set SITE_ADDRESS=yourdomain.tld in .env
+# and Caddy provisions Let's Encrypt automatically.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy web:8000
+}

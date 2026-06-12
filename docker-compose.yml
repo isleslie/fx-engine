@@ -1,0 +1,45 @@
+# Production compose for the droplet. The droplet never builds — images come
+# prebuilt from GHCR via the deploy workflow. Set GHCR_IMAGE in /opt/fx/.env
+# (or ~/fx-app/.env), e.g. GHCR_IMAGE=ghcr.io/YOUR_GH_USER/fx-engine:latest
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Your domain once DNS points here; ":80" serves plain HTTP on the bare IP
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  web:
+    image: ${GHCR_IMAGE:-ghcr.io/CHANGE_ME/fx-engine:latest}
+    restart: unless-stopped
+    environment:
+      FX_DB_PATH: /data/fx.db
+    volumes:
+      - ./data:/data
+    expose:
+      - "8000"
+
+  worker:
+    image: ${GHCR_IMAGE:-ghcr.io/CHANGE_ME/fx-engine:latest}
+    restart: unless-stopped
+    command: ["python", "-m", "fxengine.worker"]
+    environment:
+      FX_DB_PATH: /data/fx.db
+      FX_USE_MOCK_SOURCES: "true"   # flip to "false" when live adapters land
+      FX_INGEST_INTERVAL_MINUTES: "30"
+    volumes:
+      - ./data:/data
+
+volumes:
+  caddy_data:
+  caddy_config:

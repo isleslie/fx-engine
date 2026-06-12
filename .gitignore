@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Data — VPS-deployed, so the DB stays OFF git (unlike the NGX commit-back repo)
+data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Env & editor
+.env
+.DS_Store

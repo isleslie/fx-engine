@@ -1,0 +1,83 @@
+# fx-engine
+
+Naira parallel-rate **consensus engine**: many noisy survey-based FX sources in, one
+confidence-scored estimate out, measured against the official CBN anchor. Personal
+research/portfolio project — explicitly **not** a public rate service, not a rate to
+transact on, not financial advice (the CBN has treated parallel-rate publication as
+sensitive; keep that framing in all user-facing copy).
+
+## Current status
+
+- ✅ Full skeleton scaffolded and verified: engine + storage + worker + API + SPA all
+  pass tests and run end-to-end **on mock sources** (`FX_USE_MOCK_SOURCES=true`).
+- ✅ Droplet provisioned: DigitalOcean `fx-engine` (Ubuntu 24.04, 1GB), `deploy` user,
+  Cloud Firewall 22/80/443, Docker + Compose installed.
+- ⬜ NEXT: wire live adapters (see "Live source work" below), then first deploy.
+
+## Architecture (full design: docs/architecture.md)
+
+```
+caddy (TLS) → web (FastAPI, serves built SPA + /api/*) → SQLite (read)
+                                   worker (APScheduler) → SQLite (write)
+                                   worker ← adapters (Tier 1 scrape, Tier 2 P2P, CBN anchor)
+```
+
+- **Single writer rule**: only the worker writes SQLite; the web tier opens read-only.
+- DB lives on the droplet's persistent disk via a bind mount (`./data:/data`). It is
+  gitignored — this is a VPS deploy, NOT the NGX commit-back pattern.
+- Consensus methodology (src/fxengine/engine/): normalize buy/sell → per-source mids;
+  outlier rejection = median + scaled MAD (k=3.5, with zero-MAD relative-tolerance
+  fallback and a never-below-2-survivors floor); consensus = weighted mean with
+  freshness (exp half-life 90min) × agreement (1/(1+z)) weights; confidence =
+  sqrt(tightness × coverage). **This methodology is the project's value — document any
+  change in docs/architecture.md.**
+
+## Stack (decided — don't relitigate without asking)
+
+Python 3.12, httpx (async), BeautifulSoup, NumPy, raw sqlite3 (no ORM), FastAPI +
+Pydantic v2, APScheduler, Caddy. Frontend: TypeScript, React + Vite (no Next.js),
+TanStack Query, Recharts, Tailwind v4. Tooling: **uv** (Python), npm or pnpm (JS),
+**Biome** (lint+format), Ruff, pytest + respx, Vitest.
+
+## Commands
+
+```bash
+uv sync                                   # install backend deps
+uv run pytest -q                          # backend tests (24)
+uv run python -m fxengine.worker          # run worker (mock sources by default)
+uv run uvicorn fxengine.api.app:app --reload   # API on :8000
+cd frontend && npm install && npm run dev      # SPA on :5173, proxies /api → :8000
+cd frontend && npx biome check src && npx vitest run && npm run build
+```
+
+Config is env-driven via `FX_*` vars (src/fxengine/config.py). Key ones:
+`FX_DB_PATH`, `FX_USE_MOCK_SOURCES`, `FX_INGEST_INTERVAL_MINUTES`.
+
+## Conventions
+
+- Adapter contract: subclass `BaseAdapter` (src/fxengine/adapters/base.py), set
+  `name` + `tier`, implement `async fetch() -> list[Observation]`. Raise on failure —
+  the worker isolates per-adapter errors. One module per source.
+- API schemas (src/fxengine/api/schemas.py) and frontend types
+  (frontend/src/lib/api.ts) mirror 1:1 — change them together.
+- Tests offline: mock HTTP with respx + saved HTML fixtures in tests/fixtures/
+  (same pattern as the NGX repo). Never hit live sites in tests.
+- Idempotent inserts everywhere (`INSERT OR IGNORE` + UNIQUE constraints).
+
+## Live source work (the next phase — docs/sources.md has the verified map)
+
+Priority order: (1) CBN official anchor adapter, (2) 3–5 Tier-1 scrapers
+(abokiforex.app, nairatoday, nairaspot, ngnrates, talentbase), (3) Tier-2 P2P
+(Quidax/Busha ticker, Bybit P2P median). Per source: check robots.txt/ToS first,
+fetch politely (shared client already sets UA + timeout), save an HTML fixture, write
+the parser against the fixture, add tests. Flip `FX_USE_MOCK_SOURCES=false` only when
+the CBN anchor plus ≥3 market sources work.
+
+## Deploy
+
+Push to main → .github/workflows/deploy.yml: pytest → Docker build (multi-stage:
+Node builds SPA into the Python image) → push GHCR → SSH to droplet →
+`docker compose pull && up -d`. Repo secrets needed: `DEPLOY_HOST`, `DEPLOY_USER`
+(=deploy), `DEPLOY_SSH_KEY` (dedicated CI keypair — NOT the personal key).
+One-time droplet bootstrap: clone repo to `~/fx-app`, `cp .env.example .env`, set
+`GHCR_IMAGE` (and later `SITE_ADDRESS` for the domain), `docker compose up -d`.

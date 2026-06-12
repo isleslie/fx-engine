@@ -1,0 +1,165 @@
+"""SQLite storage. Same discipline as the NGX repo: idempotent inserts,
+WAL mode, the worker is the only writer and the web tier only reads.
+
+Three tables:
+- observations: every raw reading from every source (the audit trail)
+- consensus:    the engine's output per currency per run
+- official:     the CBN anchor series
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+
+from .models import ConsensusRate, Observation
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS observations (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    side TEXT NOT NULL,
+    rate REAL NOT NULL,
+    observed_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL,
+    UNIQUE (source, currency, side, observed_at)
+);
+CREATE INDEX IF NOT EXISTS ix_obs_ccy_time ON observations (currency, observed_at);
+
+CREATE TABLE IF NOT EXISTS consensus (
+    id INTEGER PRIMARY KEY,
+    currency TEXT NOT NULL,
+    rate REAL NOT NULL,
+    confidence REAL NOT NULL,
+    n_sources INTEGER NOT NULL,
+    n_rejected INTEGER NOT NULL,
+    dispersion REAL NOT NULL,
+    computed_at TEXT NOT NULL,
+    UNIQUE (currency, computed_at)
+);
+CREATE INDEX IF NOT EXISTS ix_consensus_ccy_time ON consensus (currency, computed_at);
+
+CREATE TABLE IF NOT EXISTS official (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    rate REAL NOT NULL,
+    observed_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL,
+    UNIQUE (source, currency, observed_at)
+);
+CREATE INDEX IF NOT EXISTS ix_official_ccy_time ON official (currency, observed_at);
+"""
+
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat()
+
+
+class Storage:
+    def __init__(self, db_path: Path | str, read_only: bool = False) -> None:
+        self.db_path = Path(db_path)
+        if read_only:
+            uri = f"file:{self.db_path}?mode=ro"
+            self.conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.executescript(_SCHEMA)
+        self.conn.row_factory = sqlite3.Row
+
+    # ---------- writes (worker only) ----------
+
+    def insert_observations(self, observations: list[Observation], ingested_at: datetime) -> int:
+        rows = [
+            (o.source, o.tier.value, o.currency, o.side.value, o.rate,
+             _iso(o.observed_at), _iso(ingested_at))
+            for o in observations
+        ]
+        cur = self.conn.executemany(
+            "INSERT OR IGNORE INTO observations "
+            "(source, tier, currency, side, rate, observed_at, ingested_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def insert_official(self, observations: list[Observation], ingested_at: datetime) -> int:
+        rows = [
+            (o.source, o.currency, o.rate, _iso(o.observed_at), _iso(ingested_at))
+            for o in observations
+        ]
+        cur = self.conn.executemany(
+            "INSERT OR IGNORE INTO official (source, currency, rate, observed_at, ingested_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def insert_consensus(self, c: ConsensusRate) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO consensus "
+            "(currency, rate, confidence, n_sources, n_rejected, dispersion, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (c.currency, c.rate, c.confidence, c.n_sources, c.n_rejected,
+             c.dispersion, _iso(c.computed_at)),
+        )
+        self.conn.commit()
+
+    # ---------- reads (web tier) ----------
+
+    def latest_consensus(self, currency: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM consensus WHERE currency = ? ORDER BY computed_at DESC LIMIT 1",
+            (currency,),
+        ).fetchone()
+
+    def latest_official(self, currency: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM official WHERE currency = ? ORDER BY observed_at DESC LIMIT 1",
+            (currency,),
+        ).fetchone()
+
+    def consensus_history(self, currency: str, since: datetime) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM consensus WHERE currency = ? AND computed_at >= ? ORDER BY computed_at",
+            (currency, _iso(since)),
+        ).fetchall()
+
+    def official_history(self, currency: str, since: datetime) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM official WHERE currency = ? AND observed_at >= ? ORDER BY observed_at",
+            (currency, _iso(since)),
+        ).fetchall()
+
+    def latest_observations(self, currency: str) -> list[sqlite3.Row]:
+        """Most recent reading per source for the divergence panel."""
+        return self.conn.execute(
+            """
+            SELECT o.source, o.tier, o.currency,
+                   AVG(o.rate) AS mid, MAX(o.observed_at) AS observed_at
+            FROM observations o
+            JOIN (
+                SELECT source, MAX(observed_at) AS latest
+                FROM observations WHERE currency = ?
+                GROUP BY source
+            ) last ON last.source = o.source AND last.latest = o.observed_at
+            WHERE o.currency = ?
+            GROUP BY o.source
+            ORDER BY mid
+            """,
+            (currency, currency),
+        ).fetchall()
+
+    def close(self) -> None:
+        try:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.OperationalError:
+            pass  # read-only connection
+        self.conn.close()
