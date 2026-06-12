@@ -18,7 +18,13 @@ sensitive; keep that framing in all user-facing copy).
   First real run: USD consensus 1393.76, +2.23% over CBN, confidence 0.89.
   Production compose now defaults `FX_USE_MOCK_SOURCES=false`; the code default
   stays `true` so bare local runs stay offline-friendly.
-- ⬜ NEXT: first deploy (one-time droplet bootstrap + push to main — do together).
+- ✅ DEPLOYED (2026-06-12): PR #1 merge auto-deployed to the droplet — secrets and
+  the `~/fx-app` bootstrap were already in place, so the pipeline ran end to end.
+  The worker ingests live sources every 30 min; the mock-era DB was wiped once
+  post-deploy so history is clean. Serving HTTP on the bare IP (`SITE_ADDRESS=:80`).
+- ⬜ NEXT (pick up any of): point a domain at the droplet and set `SITE_ADDRESS`
+  in `~/fx-app/.env` for automatic HTTPS; extend Tier-2 beyond USD (Bybit P2P
+  median would cover GBP/EUR); bonus Tier-1 sensors (fxratetoday, monierate).
 
 ## Architecture (full design: docs/architecture.md)
 
@@ -88,7 +94,11 @@ Busha, Bybit P2P median (Tier 2 — would give GBP/EUR a transaction-based signa
 
 Push to main → .github/workflows/deploy.yml: pytest → Docker build (multi-stage:
 Node builds SPA into the Python image) → push GHCR → SSH to droplet →
-`docker compose pull && up -d`. Repo secrets needed: `DEPLOY_HOST`, `DEPLOY_USER`
-(=deploy), `DEPLOY_SSH_KEY` (dedicated CI keypair — NOT the personal key).
-One-time droplet bootstrap: clone repo to `~/fx-app`, `cp .env.example .env`, set
-`GHCR_IMAGE` (and later `SITE_ADDRESS` for the domain), `docker compose up -d`.
+`docker compose pull && up -d`. **Every push to main deploys** — batch doc-only
+changes with real ones where convenient.
+
+Already configured (no setup left): repo secrets `DEPLOY_HOST`, `DEPLOY_USER`
+(=deploy), `DEPLOY_SSH_KEY` (dedicated CI keypair — NOT the personal key), and the
+one-time droplet bootstrap (repo clone at `~/fx-app`, `.env` with `GHCR_IMAGE`).
+Rollback = redeploy a previous image tag. Set `SITE_ADDRESS` in `~/fx-app/.env`
+once a domain points at the droplet (Caddy then gets TLS automatically).
