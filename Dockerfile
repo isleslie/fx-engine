@@ -19,6 +19,7 @@ RUN if [ -f uv.lock ]; then uv sync --frozen --no-dev --no-install-project; \
     else uv sync --no-dev --no-install-project; fi
 
 COPY src/ src/
+COPY README.md ./
 RUN uv sync --no-dev
 
 # Built SPA lands where the API's STATIC_DIR expects it (repo_root/static)
