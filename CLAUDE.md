@@ -12,7 +12,13 @@ sensitive; keep that framing in all user-facing copy).
   pass tests and run end-to-end **on mock sources** (`FX_USE_MOCK_SOURCES=true`).
 - ✅ Droplet provisioned: DigitalOcean `fx-engine` (Ubuntu 24.04, 1GB), `deploy` user,
   Cloud Firewall 22/80/443, Docker + Compose installed.
-- ⬜ NEXT: wire live adapters (see "Live source work" below), then first deploy.
+- ✅ Live adapters wired and verified (June 2026): CBN anchor (JSON API) + 4 Tier-1
+  (aboki, ngnrates, nairatoday, talentbase) + Quidax USDT/NGN ticker (Tier-2).
+  nairaspot skipped — rates render client-side from a robots-disallowed `/api/`.
+  First real run: USD consensus 1393.76, +2.23% over CBN, confidence 0.89.
+  Production compose now defaults `FX_USE_MOCK_SOURCES=false`; the code default
+  stays `true` so bare local runs stay offline-friendly.
+- ⬜ NEXT: first deploy (one-time droplet bootstrap + push to main — do together).
 
 ## Architecture (full design: docs/architecture.md)
 
@@ -43,7 +49,7 @@ TanStack Query, Recharts, Tailwind v4. Tooling: **uv** (Python), npm or pnpm (JS
 
 ```bash
 uv sync                                   # install backend deps
-uv run pytest -q                          # backend tests (24)
+uv run pytest -q                          # backend tests (60)
 uv run python -m fxengine.worker          # run worker (mock sources by default)
 uv run uvicorn fxengine.api.app:app --reload   # API on :8000
 cd frontend && npm install && npm run dev      # SPA on :5173, proxies /api → :8000
@@ -64,14 +70,19 @@ Config is env-driven via `FX_*` vars (src/fxengine/config.py). Key ones:
   (same pattern as the NGX repo). Never hit live sites in tests.
 - Idempotent inserts everywhere (`INSERT OR IGNORE` + UNIQUE constraints).
 
-## Live source work (the next phase — docs/sources.md has the verified map)
+## Live sources (wired June 2026 — docs/sources.md has endpoint details)
 
-Priority order: (1) CBN official anchor adapter, (2) 3–5 Tier-1 scrapers
-(abokiforex.app, nairatoday, nairaspot, ngnrates, talentbase), (3) Tier-2 P2P
-(Quidax/Busha ticker, Bybit P2P median). Per source: check robots.txt/ToS first,
-fetch politely (shared client already sets UA + timeout), save an HTML fixture, write
-the parser against the fixture, add tests. Flip `FX_USE_MOCK_SOURCES=false` only when
-the CBN anchor plus ≥3 market sources work.
+Registered in `live_adapters()` (src/fxengine/adapters/__init__.py), one module per
+source: `cbn.py` (official anchor, JSON `/api/GetAllExchangeRates`), `aboki.py`
+(3 per-currency pages), `ngnrates.py`, `nairatoday.py`, `talentbase.py` (homepage
+scrapes), `quidax.py` (USDT/NGN public ticker, USD only). nairaspot.com was skipped:
+its Next.js pages carry no rates server-side and the data API is robots-disallowed.
+
+Adding a source: check robots.txt/ToS first (skip and note any disallow), fetch
+politely (shared client already sets UA + timeout), save a real-response fixture in
+tests/fixtures/, write the parser against the fixture, add respx tests, register in
+`live_adapters()`. Candidates not yet wired: fxratetoday, monierate (Tier 1);
+Busha, Bybit P2P median (Tier 2 — would give GBP/EUR a transaction-based signal too).
 
 ## Deploy
 

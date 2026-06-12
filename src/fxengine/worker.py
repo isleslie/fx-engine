@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from .adapters import make_client, mock_adapters
+from .adapters import live_adapters, make_client, mock_adapters
 from .config import settings
 from .engine import compute_consensus, to_mids
 from .models import Observation, Tier, utcnow
@@ -26,9 +26,7 @@ log = logging.getLogger("fxengine.worker")
 def get_adapters(client) -> list:
     if settings.use_mock_sources:
         return mock_adapters()
-    # Live adapters get registered here in the Claude Code phase, e.g.:
-    # return [AbokiAdapter(client), NairaTodayAdapter(client), ..., CBNAdapter(client)]
-    raise NotImplementedError("No live adapters wired yet — set FX_USE_MOCK_SOURCES=true")
+    return live_adapters(client)
 
 
 async def gather_observations() -> list[Observation]:

@@ -1,0 +1,184 @@
+[
+  {
+    "currency": "CFA",
+    "ratedate": "2026-06-11",
+    "buyingrate": "2.3751",
+    "centralrate": "2.3851",
+    "sellingrate": "2.3951"
+  },
+  {
+    "currency": "YUAN/RENMINBI",
+    "ratedate": "2026-06-11",
+    "buyingrate": "201.0570",
+    "centralrate": "201.1308",
+    "sellingrate": "201.2046"
+  },
+  {
+    "currency": "DANISH KRONA",
+    "ratedate": "2026-06-11",
+    "buyingrate": "210.2671",
+    "centralrate": "210.3442",
+    "sellingrate": "210.4214"
+  },
+  {
+    "currency": "EURO",
+    "ratedate": "2026-06-11",
+    "buyingrate": "1571.7461",
+    "centralrate": "1572.3227",
+    "sellingrate": "1572.8994"
+  },
+  {
+    "currency": "YEN",
+    "ratedate": "2026-06-11",
+    "buyingrate": "8.4901",
+    "centralrate": "8.4932",
+    "sellingrate": "8.4963"
+  },
+  {
+    "currency": "RIYAL",
+    "ratedate": "2026-06-11",
+    "buyingrate": "363.0231",
+    "centralrate": "363.1563",
+    "sellingrate": "363.2895"
+  },
+  {
+    "currency": "SOUTH AFRICAN RAND",
+    "ratedate": "2026-06-11",
+    "buyingrate": "82.5449",
+    "centralrate": "82.5752",
+    "sellingrate": "82.6055"
+  },
+  {
+    "currency": "SDR",
+    "ratedate": "2026-06-11",
+    "buyingrate": "1871.7039",
+    "centralrate": "1872.3906",
+    "sellingrate": "1873.0773"
+  },
+  {
+    "currency": "SWISS FRANC",
+    "ratedate": "2026-06-11",
+    "buyingrate": "1705.2365",
+    "centralrate": "1705.8621",
+    "sellingrate": "1706.4877"
+  },
+  {
+    "currency": "POUNDS STERLING",
+    "ratedate": "2026-06-11",
+    "buyingrate": "1819.9165",
+    "centralrate": "1820.5842",
+    "sellingrate": "1821.2519"
+  },
+  {
+    "currency": "US DOLLAR",
+    "ratedate": "2026-06-11",
+    "buyingrate": "1362.8250",
+    "centralrate": "1363.3250",
+    "sellingrate": "1363.8250"
+  },
+  {
+    "currency": "WAUA",
+    "ratedate": "2026-06-11",
+    "buyingrate": "1856.0849",
+    "centralrate": "1856.7658",
+    "sellingrate": "1857.4468"
+  },
+  {
+    "currency": "UAE DIRHAM",
+    "ratedate": "2026-06-11",
+    "buyingrate": "371.0589",
+    "centralrate": "371.1950",
+    "sellingrate": "371.3311"
+  },
+  {
+    "currency": "CFA",
+    "ratedate": "2026-06-10",
+    "buyingrate": "2.3795",
+    "centralrate": "2.3895",
+    "sellingrate": "2.3995"
+  },
+  {
+    "currency": "YUAN/RENMINBI",
+    "ratedate": "2026-06-10",
+    "buyingrate": "200.8344",
+    "centralrate": "200.9082",
+    "sellingrate": "200.9820"
+  },
+  {
+    "currency": "DANISH KRONA",
+    "ratedate": "2026-06-10",
+    "buyingrate": "210.5853",
+    "centralrate": "210.6627",
+    "sellingrate": "210.7400"
+  },
+  {
+    "currency": "EURO",
+    "ratedate": "2026-06-10",
+    "buyingrate": "1574.1961",
+    "centralrate": "1574.7744",
+    "sellingrate": "1575.3527"
+  },
+  {
+    "currency": "YEN",
+    "ratedate": "2026-06-10",
+    "buyingrate": "8.4854",
+    "centralrate": "8.4885",
+    "sellingrate": "8.4916"
+  },
+  {
+    "currency": "RIYAL",
+    "ratedate": "2026-06-10",
+    "buyingrate": "362.5709",
+    "centralrate": "362.7041",
+    "sellingrate": "362.8373"
+  },
+  {
+    "currency": "SOUTH AFRICAN RAND",
+    "ratedate": "2026-06-10",
+    "buyingrate": "82.4777",
+    "centralrate": "82.5080",
+    "sellingrate": "82.5383"
+  },
+  {
+    "currency": "SDR",
+    "ratedate": "2026-06-10",
+    "buyingrate": "1869.2728",
+    "centralrate": "1869.9595",
+    "sellingrate": "1870.6462"
+  },
+  {
+    "currency": "SWISS FRANC",
+    "ratedate": "2026-06-10",
+    "buyingrate": "1707.5083",
+    "centralrate": "1708.1356",
+    "sellingrate": "1708.7629"
+  },
+  {
+    "currency": "POUNDS STERLING",
+    "ratedate": "2026-06-10",
+    "buyingrate": "1825.9913",
+    "centralrate": "1826.6621",
+    "sellingrate": "1827.3329"
+  },
+  {
+    "currency": "US DOLLAR",
+    "ratedate": "2026-06-10",
+    "buyingrate": "1361.0549",
+    "centralrate": "1361.5549",
+    "sellingrate": "1362.0549"
+  },
+  {
+    "currency": "WAUA",
+    "ratedate": "2026-06-10",
+    "buyingrate": "1855.2437",
+    "centralrate": "1855.9253",
+    "sellingrate": "1856.6068"
+  },
+  {
+    "currency": "UAE DIRHAM",
+    "ratedate": "2026-06-10",
+    "buyingrate": "370.5870",
+    "centralrate": "370.7231",
+    "sellingrate": "370.8593"
+  }
+]

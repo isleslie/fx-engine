@@ -35,8 +35,9 @@ services:
     command: ["python", "-m", "fxengine.worker"]
     environment:
       FX_DB_PATH: /data/fx.db
-      FX_USE_MOCK_SOURCES: "true"   # flip to "false" when live adapters land
-      FX_INGEST_INTERVAL_MINUTES: "30"
+      # Live adapters are wired; mock is opt-in via .env for debugging.
+      FX_USE_MOCK_SOURCES: ${FX_USE_MOCK_SOURCES:-false}
+      FX_INGEST_INTERVAL_MINUTES: ${FX_INGEST_INTERVAL_MINUTES:-30}
     volumes:
       - ./data:/data
 
