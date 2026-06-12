@@ -16,7 +16,7 @@ class Side(StrEnum):
 class Tier(StrEnum):
     """Source tiers from docs/sources.md."""
 
-    AGGREGATOR = "tier1_aggregator"  # survey-based sites (aboki, nairatoday, ...)
+    AGGREGATOR = "tier1_aggregator"  # survey-based sites (aboki, nairatoday, etc.)
     P2P = "tier2_p2p"  # transaction-based crypto signal (USDT/NGN)
     FINTECH = "tier3_fintech"  # digital BDC / fintech published rates
     OFFICIAL = "official"  # CBN anchor — never a consensus input
