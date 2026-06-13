@@ -85,17 +85,23 @@ sub-grade so the two are not weighted identically.
 1 USD and emit `currency="USD"`. Luno also exposes USDC/NGN but it is illiquid
 (wide bid/ask, thin volume) so it is not used. Revisit if USDT depegs materially.
 
-## Tier 3 — fintech / digital BDC published rates (`Tier.FINTECH`, Phase 2)
+## Tier 3 — fintech / digital BDC published rates (`Tier.FINTECH`) — SKIPPED
 
-A posted buy/sell rate per app, pegged near parallel — a *third* mechanism,
-distinct from both surveys and transaction-based feeds. Mostly in-app with no
-public endpoint; reverse-engineering app internals is ToS-sensitive — do NOT.
-Wire only platforms exposing a genuine public rate page/calculator. Candidates
-to verify in Phase 2: **Monica (monica.cash)** — has a public live-rate
-calculator, best first target; **Breet** — competitive posted rate; **Grey**,
-**Cleva**, **Raenest (Geegpay)**, **Dtunes**, **Lemonade** — verify for a public
-page first. Fold Tier 3 into the tier blend once ≥2 are wired (extend
-`tier_weights`, renormalise over present tiers).
+A posted buy/sell rate per app, pegged near parallel, would be a *third* mechanism
+distinct from surveys and transaction-based feeds. **Verified 2026-06-13 — none
+exposes a genuine independent public posted rate, so the tier is skipped** (the
+plan's explicit fallback; we do not reverse-engineer app internals).
+
+| Candidate | Finding | Decision |
+|---|---|---|
+| Monica (monica.cash) | Has a public `/calculator`, but it's **CoinGecko-derived** (market mid refreshed every 60s), not Monica's own off-ramp rate. Non-independent + circular (CoinGecko aggregates the exchanges we already use) — and CoinGecko is itself robots-skipped. | skip — not its own rate |
+| Breet, Grey, Raenest/Geegpay | Marketing homepages only; scattered unlabelled numbers, no structured posted rate. The real rate is in-app (auth). | skip — no public rate |
+| Cleva | SPA; rate rendered client-side, nothing server-side to read. | skip — client-rendered |
+| Dtunes, Lemonade | No public rate page found. | skip |
+
+`tier_weights` already carries a `tier3_fintech` entry as a forward placeholder; it
+is inert (no FINTECH source emits, so the tier never appears in a run and is never
+in the blend). Revisit if any fintech publishes its *own* posted rate cleanly.
 
 ## Tier 4 — Telegram/X BDC channels (noisy, optional)
 
