@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -12,7 +11,7 @@ import respx
 
 from fxengine.adapters.aboki import BASE, PAGES, AbokiAdapter, parse
 from fxengine.adapters.base import make_client
-from fxengine.models import Side, Tier
+from fxengine.models import Side, Tier, utcnow
 
 FIX = Path(__file__).parent / "fixtures"
 USD = (FIX / "aboki_usd.html").read_text(encoding="utf-8")
@@ -22,20 +21,13 @@ EUR = (FIX / "aboki_eur.html").read_text(encoding="utf-8")
 
 class TestParse:
     def test_usd_rate(self):
-        rate, _ = parse(USD)
-        assert rate == 1397.0
+        assert parse(USD) == 1397.0
 
     def test_gbp_rate(self):
-        rate, _ = parse(GBP)
-        assert rate == 1850.0
+        assert parse(GBP) == 1850.0
 
     def test_eur_rate(self):
-        rate, _ = parse(EUR)
-        assert rate == 1587.0
-
-    def test_date_from_h1(self):
-        _, observed_at = parse(USD)
-        assert observed_at == datetime(2026, 6, 11, tzinfo=UTC)
+        assert parse(EUR) == 1587.0
 
     def test_no_table_raises(self):
         with pytest.raises(ValueError):
@@ -61,6 +53,9 @@ def test_fetch_all_three():
     assert by_ccy["USD"].rate == 1397.0
     assert all(o.tier is Tier.AGGREGATOR and o.side is Side.MID for o in obs)
     assert all(o.source == "aboki" for o in obs)
+    # observed_at is the fetch time (page carries only a date), so the freshness
+    # weighting treats aboki comparably to the other survey sources.
+    assert all((utcnow() - o.observed_at).total_seconds() < 60 for o in obs)
 
 
 @respx.mock
