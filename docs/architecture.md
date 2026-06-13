@@ -52,41 +52,85 @@ Key decisions and the reasons:
 
 ## Consensus methodology (src/fxengine/engine/)
 
-The defensible-estimate problem: there is no ground truth for the parallel rate —
-every source is a survey of the same fuzzy street market. So the engine constructs a
-consensus and is honest about its uncertainty.
+The defensible-estimate problem: there is no ground truth for the parallel rate.
+Worse, the sources are not even measuring the *same* thing — survey aggregators
+report street/BDC **cash** quotes, while transaction-based feeds report **USDT/NGN
+digital-dollar** clearing prices. These run a persistent gap (transaction-based has
+sat ~1.5% below the survey pack). So the engine treats them as distinct
+**mechanisms** (tiers), reconciles each on its own, then blends — rather than
+pooling everything and letting one mechanism's tight internal agreement masquerade
+as ground truth.
 
 1. **Normalize** (`normalize.py`) — per source per currency: buy+sell → average;
    single side taken as-is; official-tier observations excluded from the panel.
-2. **Outlier rejection** (`outliers.py`) — median + scaled MAD (×1.4826 so `k` reads
-   in sigma-like units; default k=3.5). Guards: panels under 3 keep everything;
-   MAD=0 falls back to a 1% relative band; rejection never leaves fewer than 2
-   survivors.
-3. **Weighted consensus** (`consensus.py`) — weight = freshness × agreement, where
-   freshness = 0.5^(age_minutes / 90) and agreement = 1/(1+z), z the scaled-MAD
-   distance from the median. Stale or straggling sources count less without being
-   silently dropped.
-4. **Confidence** — sqrt(tightness × coverage): tightness fades linearly to zero as
-   relative dispersion reaches 2%; coverage saturates at 6 surviving sources.
-   Published with every estimate, alongside per-source divergence, so "high
-   confidence, tightly clustered" vs "wide disagreement, treat with caution" is
-   always visible.
-5. **Spread** — consensus minus the CBN official anchor, absolute and %, stored as
-   history for charting.
+2. **Tier-aware reconciliation** (`consensus.py`) — group surviving observations by
+   tier (survey aggregators vs transaction-based P2P/exchange), then:
+   - **Within-tier outlier rejection** (`outliers.py`) — median + scaled MAD
+     (×1.4826 so `k` reads in sigma-like units; default k=3.5; panels under 3 keep
+     everything; MAD=0 → 1% relative band; never below 2 survivors). Rejection runs
+     **inside each tier only**, so a tight survey pack can never evict the
+     transaction-based tier (the single-pool design did exactly that — the lone
+     P2P price looked like the outlier against four near-identical surveys and was
+     cut every run).
+   - **Per-tier sub-consensus** — weight = freshness × agreement, freshness =
+     0.5^(age_minutes / 90), agreement = 1/(1+z) with z the scaled-MAD distance
+     from the tier median. Stale/straggling sources count less without being
+     dropped.
+   - **Tier blend** — sub-consensuses combined with configurable
+     `tier_weights` (default 0.5 survey / 0.5 P2P), **renormalised over the tiers
+     actually present**. A currency with no transaction-based source (GBP/EUR
+     today, since the USDT/NGN feeds are USD-only) falls back to survey-only
+     cleanly; no special-casing.
+3. **Confidence** — rewards *two independent mechanisms agreeing, each with several
+   sources*, and caps single-mechanism / single-source reliance:
 
-Tuning lives in `config.py` (`FX_MAD_K`, `FX_FRESHNESS_HALF_LIFE_MINUTES`).
+   ```
+   within_quality   = Σ_t weight_t · sqrt(tightness_t × depth_t)
+   mechanism_factor = cross-tier agreement   (≥2 tiers present)
+                    = SINGLE_TIER_CAP (0.7)   (only one tier present)
+   confidence       = within_quality × mechanism_factor
+   ```
+
+   Per tier: `tightness` fades to 0 as within-tier relative dispersion reaches 2%;
+   `depth` saturates at 3 surviving sources (so a single-source tier is penalised).
+   `cross-tier agreement` fades to 0 as the relative spread between tier rates
+   reaches 3%. The upshot: one tight mechanism alone is **capped at 0.7** (no
+   corroboration), while two mechanisms that genuinely agree can exceed it; a wide
+   survey↔P2P gap drives confidence toward 0 ("treat with caution").
+4. **Inter-tier spread** — the signed survey→P2P gap is computed and stored every
+   run. It is itself a signal: a stable gap reads as structural (two different
+   liquidity pools), a jumpy one as noise. Surfaced so the methodology is honest
+   that it reconciles mechanisms by weight rather than averaging them blindly.
+5. **Spread vs anchor** — blended consensus minus the CBN official anchor, absolute
+   and %, stored as history for charting.
+
+Tuning lives in `config.py` (`FX_MAD_K`, `FX_FRESHNESS_HALF_LIFE_MINUTES`,
+`tier_weights`). On weights: 0.5/0.5 is a deliberately neutral starting point. The
+transaction-based tier is arguably the higher-quality signal (real clearing prices,
+not surveys) and may earn a majority share once the basket is deeper and a learned
+per-source reliability weight (a later phase) is in place; until then, neither
+mechanism is privileged.
 
 ## Data model (SQLite)
 
 - `observations(source, tier, currency, side, rate, observed_at, ingested_at)` —
   raw audit trail, UNIQUE(source, currency, side, observed_at).
 - `consensus(currency, rate, confidence, n_sources, n_rejected, dispersion,
-  computed_at)` — engine output per run, UNIQUE(currency, computed_at).
+  computed_at, inter_tier_spread_pct)` — blended engine output per run,
+  UNIQUE(currency, computed_at). `inter_tier_spread_pct` is nullable (None when
+  only one tier was present); it was added to the live table via an idempotent
+  additive migration (`Storage._migrate`), so pre-tier-aware rows read back fine.
+- `tier_consensus(currency, tier, rate, n_sources, n_rejected, dispersion, weight,
+  computed_at)` — each mechanism's sub-consensus for a run,
+  UNIQUE(currency, tier, computed_at). Joins back to `consensus` on
+  (currency, computed_at).
 - `official(source, currency, rate, observed_at, ingested_at)` — the CBN anchor
   series, kept apart from market observations.
 
 All writes are `INSERT OR IGNORE` against those UNIQUE keys, so re-runs are
-idempotent (NGX discipline carried over).
+idempotent (NGX discipline carried over). Schema changes are additive only
+(`CREATE TABLE IF NOT EXISTS` / nullable `ADD COLUMN`) — the droplet's live
+history must survive every deploy.
 
 ## API ↔ frontend contract
 

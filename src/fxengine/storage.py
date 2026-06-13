@@ -38,9 +38,27 @@ CREATE TABLE IF NOT EXISTS consensus (
     n_rejected INTEGER NOT NULL,
     dispersion REAL NOT NULL,
     computed_at TEXT NOT NULL,
+    inter_tier_spread_pct REAL,
     UNIQUE (currency, computed_at)
 );
 CREATE INDEX IF NOT EXISTS ix_consensus_ccy_time ON consensus (currency, computed_at);
+
+-- Per-tier sub-consensus, one row per (currency, tier, run). Additive: the
+-- blended result still lives in `consensus`; this records each mechanism's view.
+CREATE TABLE IF NOT EXISTS tier_consensus (
+    id INTEGER PRIMARY KEY,
+    currency TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    rate REAL NOT NULL,
+    n_sources INTEGER NOT NULL,
+    n_rejected INTEGER NOT NULL,
+    dispersion REAL NOT NULL,
+    weight REAL NOT NULL,
+    computed_at TEXT NOT NULL,
+    UNIQUE (currency, tier, computed_at)
+);
+CREATE INDEX IF NOT EXISTS ix_tier_consensus_ccy_time
+    ON tier_consensus (currency, computed_at);
 
 CREATE TABLE IF NOT EXISTS official (
     id INTEGER PRIMARY KEY,
@@ -70,7 +88,20 @@ class Storage:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.executescript(_SCHEMA)
+            self._migrate()
         self.conn.row_factory = sqlite3.Row
+
+    def _migrate(self) -> None:
+        """Additive, idempotent upgrades for DBs created before a column existed.
+
+        CREATE TABLE IF NOT EXISTS leaves existing tables untouched, so a column
+        added to an existing table needs an explicit guarded ALTER. Production
+        history must survive — we only ever ADD nullable columns.
+        """
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(consensus)")}
+        if "inter_tier_spread_pct" not in cols:
+            self.conn.execute("ALTER TABLE consensus ADD COLUMN inter_tier_spread_pct REAL")
+        self.conn.commit()
 
     # ---------- writes (worker only) ----------
 
@@ -105,11 +136,20 @@ class Storage:
     def insert_consensus(self, c: ConsensusRate) -> None:
         self.conn.execute(
             "INSERT OR IGNORE INTO consensus "
-            "(currency, rate, confidence, n_sources, n_rejected, dispersion, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(currency, rate, confidence, n_sources, n_rejected, dispersion, "
+            "computed_at, inter_tier_spread_pct) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (c.currency, c.rate, c.confidence, c.n_sources, c.n_rejected,
-             c.dispersion, _iso(c.computed_at)),
+             c.dispersion, _iso(c.computed_at), c.inter_tier_spread_pct),
         )
+        for tc in c.tiers:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO tier_consensus "
+                "(currency, tier, rate, n_sources, n_rejected, dispersion, weight, "
+                "computed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (c.currency, tc.tier.value, tc.rate, tc.n_sources, tc.n_rejected,
+                 tc.dispersion, tc.weight, _iso(c.computed_at)),
+            )
         self.conn.commit()
 
     # ---------- reads (web tier) ----------
@@ -119,6 +159,19 @@ class Storage:
             "SELECT * FROM consensus WHERE currency = ? ORDER BY computed_at DESC LIMIT 1",
             (currency,),
         ).fetchone()
+
+    def latest_tier_consensus(self, currency: str) -> list[sqlite3.Row]:
+        """Per-tier sub-consensus rows for the most recent run of a currency."""
+        return self.conn.execute(
+            """
+            SELECT * FROM tier_consensus
+            WHERE currency = ? AND computed_at = (
+                SELECT MAX(computed_at) FROM tier_consensus WHERE currency = ?
+            )
+            ORDER BY tier
+            """,
+            (currency, currency),
+        ).fetchall()
 
     def latest_official(self, currency: str) -> sqlite3.Row | None:
         return self.conn.execute(

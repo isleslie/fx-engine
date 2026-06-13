@@ -45,16 +45,42 @@ class Observation:
 
 
 @dataclass(frozen=True, slots=True)
+class TierConsensus:
+    """Per-tier sub-consensus: one source mechanism's own view of a currency.
+
+    Tiers (survey aggregators vs transaction-based P2P/exchange) measure related
+    but distinct things, so each gets its own outlier rejection and weighted
+    mid before the tiers are blended. `weight` is the normalised blend weight
+    actually applied to this tier in the final consensus this run.
+    """
+
+    tier: Tier
+    rate: float
+    n_sources: int
+    n_rejected: int
+    dispersion: float
+    weight: float
+
+
+@dataclass(frozen=True, slots=True)
 class ConsensusRate:
-    """The engine's output for one currency at one point in time."""
+    """The engine's output for one currency at one point in time.
+
+    `rate` is the tier-blended consensus; `tiers` carries each mechanism's
+    sub-consensus and `inter_tier_spread_pct` the signed survey→P2P gap (None
+    unless both mechanisms are present). The trailing fields default so older
+    positional construction and stored rows without them remain valid.
+    """
 
     currency: str
-    rate: float  # confidence-weighted consensus, NGN per unit
-    confidence: float  # 0..1, higher = sources tightly clustered & fresh
-    n_sources: int  # sources surviving outlier rejection
-    n_rejected: int  # sources dropped as outliers/stale
-    dispersion: float  # relative MAD of surviving mids (0 = perfect agreement)
+    rate: float  # tier-blended consensus, NGN per unit
+    confidence: float  # 0..1, higher = tight, deep, and cross-mechanism agreement
+    n_sources: int  # sources surviving outlier rejection (across tiers)
+    n_rejected: int  # sources dropped as outliers/stale (across tiers)
+    dispersion: float  # blend-weighted within-tier relative MAD (0 = perfect agreement)
     computed_at: datetime
+    inter_tier_spread_pct: float | None = None  # signed (P2P - survey) / survey, %
+    tiers: tuple[TierConsensus, ...] = ()  # per-tier sub-consensus, in-memory carrier
 
 
 def utcnow() -> datetime:
