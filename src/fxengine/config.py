@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     reliability_alpha: float = 0.1  # EWMA learning rate
     reliability_error_max: float = 0.02  # 2% error => zero reliability credit
     reliability_prior: float = 0.5  # neutral starting score for a new source
+    # Independence guard: copycat survey sources inflate confidence. Over the last
+    # N runs, a survey pair whose mids match within `tol` in > `threshold` of the
+    # runs they share (and with at least `min_runs` shared) is flagged correlated;
+    # the lower-reliability member's within-tier weight is multiplied by `penalty`.
+    correlation_runs: int = 30
+    correlation_tol: float = 0.0005  # 0.05% — "effectively identical"
+    correlation_threshold: float = 0.8
+    correlation_min_runs: int = 10  # need this many shared runs before flagging
+    correlation_penalty: float = 0.5  # weight multiplier on the lower-reliability peer
     http_timeout_seconds: float = 15.0
     user_agent: str = "fx-engine/0.1 (personal research; +https://github.com/CHANGE_ME/fx-engine)"
 

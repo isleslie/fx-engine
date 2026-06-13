@@ -56,6 +56,7 @@ export type SourceReading = {
   divergence_pct: number | null;
   rejected: boolean;
   reliability: number | null;
+  correlated_with: string | null;
 };
 
 export type Sources = {

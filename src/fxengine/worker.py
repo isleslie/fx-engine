@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from dataclasses import replace
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from .adapters import live_adapters, make_client, mock_adapters
 from .config import settings
 from .engine import compute_consensus, to_mids, update_reliability
+from .engine.independence import flag_correlated_pairs
 from .models import Observation, Tier, utcnow
 from .storage import Storage
 
@@ -41,6 +43,29 @@ async def gather_observations() -> list[Observation]:
         observations.extend(result)
         log.info("source %s: %d observations", adapter.name, len(result))
     return observations
+
+
+def _correlation_guard(storage, currency, reliability):
+    """Flag copycat survey pairs over recent history; halve the weaker member.
+
+    Returns (pairs, penalty) where penalty maps the lower-reliability member of
+    each flagged pair to settings.correlation_penalty.
+    """
+    history = storage.recent_source_mids(
+        currency, Tier.AGGREGATOR.value, settings.correlation_runs
+    )
+    pairs = flag_correlated_pairs(
+        history,
+        tol=settings.correlation_tol,
+        threshold=settings.correlation_threshold,
+        min_runs=settings.correlation_min_runs,
+    )
+    prior = settings.reliability_prior
+    penalty: dict[str, float] = {}
+    for a, b in pairs:
+        weaker = a if reliability.get(a, prior) <= reliability.get(b, prior) else b
+        penalty[weaker] = settings.correlation_penalty
+    return pairs, penalty
 
 
 def _update_reliability(storage, currency, mids, consensus, rejected, prev_scores) -> None:
@@ -84,12 +109,19 @@ def run_ingest(storage: Storage) -> None:
     for currency in settings.currencies:
         mids = by_ccy.get(currency, [])
         reliability = storage.reliability_scores(currency)
-        consensus, rejected = compute_consensus(mids, reliability=reliability)
+        pairs, penalty = _correlation_guard(storage, currency, reliability)
+        consensus, rejected = compute_consensus(
+            mids, reliability=reliability, weight_penalty=penalty
+        )
         if consensus is None:
             log.warning("%s: no market observations this run", currency)
             continue
+        consensus = replace(consensus, correlated_pairs=tuple(pairs))
         storage.insert_consensus(consensus)
         _update_reliability(storage, currency, mids, consensus, rejected, reliability)
+        if pairs:
+            log.info("%s correlated survey pairs %s; downweighted %s",
+                     currency, pairs, sorted(penalty))
         tier_brief = ", ".join(
             f"{tc.tier.value}={tc.rate:.2f}(n{tc.n_sources},w{tc.weight:.2f})"
             for tc in consensus.tiers

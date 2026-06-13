@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import timedelta
 
 from fxengine.models import ConsensusRate, Observation, Side, Tier, TierConsensus, utcnow
 from fxengine.storage import Storage
@@ -93,6 +94,29 @@ def test_source_stats_upsert_and_increment(tmp_path):
     assert row["n_runs"] == 2
     # scoped per currency
     assert storage.reliability_scores("GBP") == {}
+    storage.close()
+
+
+def test_recent_source_mids_groups_by_run(tmp_path):
+    storage = make_storage(tmp_path)
+    run1, run2 = utcnow() - timedelta(minutes=30), utcnow()
+    storage.insert_observations(
+        [
+            Observation("aboki", Tier.AGGREGATOR, "USD", Side.BUY, 1490.0, run1),
+            Observation("aboki", Tier.AGGREGATOR, "USD", Side.SELL, 1510.0, run1),
+            Observation("ngnrates", Tier.AGGREGATOR, "USD", Side.MID, 1502.0, run1),
+            Observation("quidax", Tier.P2P, "USD", Side.MID, 1480.0, run1),
+        ],
+        ingested_at=run1,
+    )
+    storage.insert_observations(
+        [Observation("aboki", Tier.AGGREGATOR, "USD", Side.MID, 1505.0, run2)],
+        ingested_at=run2,
+    )
+    hist = storage.recent_source_mids("USD", Tier.AGGREGATOR.value, n_runs=30)
+    assert set(hist) == {"aboki", "ngnrates"}  # P2P tier excluded
+    assert hist["aboki"][run1.isoformat()] == 1500.0  # buy/sell averaged
+    assert hist["aboki"][run2.isoformat()] == 1505.0
     storage.close()
 
 

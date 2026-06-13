@@ -153,6 +153,7 @@ def sources(currency: str = Query("USD")) -> SourcesOut:
         (cons_row["rejected_sources"] or "").split(",") if cons_row else []
     ) - {""}
     reliability = storage.reliability_scores(c)
+    correlated = _correlation_map(cons_row["correlated_pairs"] if cons_row else None)
 
     out = []
     for row in storage.latest_observations(c):
@@ -167,9 +168,20 @@ def sources(currency: str = Query("USD")) -> SourcesOut:
                 divergence_pct=divergence,
                 rejected=row["source"] in rejected,
                 reliability=round(score, 3) if score is not None else None,
+                correlated_with=correlated.get(row["source"]),
             )
         )
     return SourcesOut(currency=c, consensus=cons_rate, sources=out)
+
+
+def _correlation_map(raw: str | None) -> dict[str, str]:
+    """Parse stored "a|b,c|d" pairs into a symmetric source -> peer map."""
+    out: dict[str, str] = {}
+    for pair in (raw or "").split(","):
+        if "|" in pair:
+            a, b = pair.split("|", 1)
+            out[a], out[b] = b, a
+    return out
 
 
 # Serve the built SPA (present in the Docker image; absent in bare dev).

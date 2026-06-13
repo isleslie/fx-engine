@@ -112,7 +112,16 @@ as ground truth.
    run. It is itself a signal: a stable gap reads as structural (two different
    liquidity pools), a jumpy one as noise. Surfaced so the methodology is honest
    that it reconciles mechanisms by weight rather than averaging them blindly.
-6. **Spread vs anchor** — blended consensus minus the CBN official anchor, absolute
+6. **Independence guard** (`independence.py`) — many Naira aggregators republish
+   each other, so a tight survey cluster can be one quote wearing several hats,
+   inflating both its weight and confidence. Over the last `N=30` runs, a pair of
+   *survey* sources whose mids agree to within 0.05% in >80% of the runs they
+   share (≥10 shared) is flagged correlated; the lower-reliability member's
+   within-tier weight is multiplied by 0.5 so a duplicated quote counts roughly
+   once. Flagged pairs are surfaced via `/api/sources` (`correlated_with`). Only
+   the survey tier is examined — the transaction-based tier is a different
+   mechanism, not a copy.
+7. **Spread vs anchor** — blended consensus minus the CBN official anchor, absolute
    and %, stored as history for charting.
 
 Tuning lives in `config.py` (`FX_MAD_K`, `FX_FRESHNESS_HALF_LIFE_MINUTES`,

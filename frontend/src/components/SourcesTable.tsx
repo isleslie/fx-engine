@@ -56,6 +56,14 @@ export default function SourcesTable({ currency }: { currency: string }) {
                       cut
                     </span>
                   )}
+                  {s.correlated_with && (
+                    <span
+                      className="ml-2 text-[10px] text-muted"
+                      title={`Mirrors ${s.correlated_with} in most recent runs — weight reduced to avoid double-counting a shared quote`}
+                    >
+                      ≈{s.correlated_with}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 text-muted">
                   {TIER_LABEL[s.tier] ?? s.tier}

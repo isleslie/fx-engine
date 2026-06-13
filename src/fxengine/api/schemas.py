@@ -63,6 +63,7 @@ class SourceOut(BaseModel):
     divergence_pct: float | None  # vs latest consensus
     rejected: bool = False  # cut as an outlier within its tier this run
     reliability: float | None = None  # slow EWMA trust score (0..1), None if unseen
+    correlated_with: str | None = None  # a survey peer this source mirrors, if flagged
 
 
 class SourcesOut(BaseModel):
