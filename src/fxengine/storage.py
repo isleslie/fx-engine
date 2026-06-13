@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS consensus (
     computed_at TEXT NOT NULL,
     inter_tier_spread_pct REAL,
     rejected_sources TEXT,
+    correlated_pairs TEXT,
     UNIQUE (currency, computed_at)
 );
 CREATE INDEX IF NOT EXISTS ix_consensus_ccy_time ON consensus (currency, computed_at);
@@ -71,6 +72,16 @@ CREATE TABLE IF NOT EXISTS official (
     UNIQUE (source, currency, observed_at)
 );
 CREATE INDEX IF NOT EXISTS ix_official_ccy_time ON official (currency, observed_at);
+
+-- Slow per-source reliability EWMA (one row per source per currency).
+CREATE TABLE IF NOT EXISTS source_stats (
+    source TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    score REAL NOT NULL,
+    n_runs INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (source, currency)
+);
 """
 
 
@@ -104,6 +115,8 @@ class Storage:
             self.conn.execute("ALTER TABLE consensus ADD COLUMN inter_tier_spread_pct REAL")
         if "rejected_sources" not in cols:
             self.conn.execute("ALTER TABLE consensus ADD COLUMN rejected_sources TEXT")
+        if "correlated_pairs" not in cols:
+            self.conn.execute("ALTER TABLE consensus ADD COLUMN correlated_pairs TEXT")
         self.conn.commit()
 
     # ---------- writes (worker only) ----------
@@ -140,11 +153,12 @@ class Storage:
         self.conn.execute(
             "INSERT OR IGNORE INTO consensus "
             "(currency, rate, confidence, n_sources, n_rejected, dispersion, "
-            "computed_at, inter_tier_spread_pct, rejected_sources) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "computed_at, inter_tier_spread_pct, rejected_sources, correlated_pairs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (c.currency, c.rate, c.confidence, c.n_sources, c.n_rejected,
              c.dispersion, _iso(c.computed_at), c.inter_tier_spread_pct,
-             ",".join(c.rejected_sources) or None),
+             ",".join(c.rejected_sources) or None,
+             ",".join(f"{a}|{b}" for a, b in c.correlated_pairs) or None),
         )
         for tc in c.tiers:
             self.conn.execute(
@@ -156,7 +170,53 @@ class Storage:
             )
         self.conn.commit()
 
+    def upsert_reliability(
+        self, currency: str, source: str, score: float, updated_at: datetime
+    ) -> None:
+        """Write a source's new EWMA score, incrementing its run count."""
+        self.conn.execute(
+            "INSERT INTO source_stats (source, currency, score, n_runs, updated_at) "
+            "VALUES (?, ?, ?, 1, ?) "
+            "ON CONFLICT(source, currency) DO UPDATE SET "
+            "score = excluded.score, n_runs = source_stats.n_runs + 1, "
+            "updated_at = excluded.updated_at",
+            (source, currency, score, _iso(updated_at)),
+        )
+        self.conn.commit()
+
     # ---------- reads (web tier) ----------
+
+    def reliability_scores(self, currency: str) -> dict[str, float]:
+        """source -> reliability score for a currency (callers default the rest)."""
+        rows = self.conn.execute(
+            "SELECT source, score FROM source_stats WHERE currency = ?", (currency,)
+        ).fetchall()
+        return {r["source"]: r["score"] for r in rows}
+
+    def recent_source_mids(
+        self, currency: str, tier: str, n_runs: int
+    ) -> dict[str, dict[str, float]]:
+        """{source: {run (ingested_at): mid}} over the last n_runs for one tier.
+
+        Mid = mean of that source's readings in the run; used by the independence
+        guard to compare survey sources run-over-run.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT source, ingested_at, AVG(rate) AS mid
+            FROM observations
+            WHERE currency = ? AND tier = ? AND ingested_at IN (
+                SELECT DISTINCT ingested_at FROM observations
+                WHERE currency = ? ORDER BY ingested_at DESC LIMIT ?
+            )
+            GROUP BY source, ingested_at
+            """,
+            (currency, tier, currency, n_runs),
+        ).fetchall()
+        out: dict[str, dict[str, float]] = {}
+        for r in rows:
+            out.setdefault(r["source"], {})[r["ingested_at"]] = r["mid"]
+        return out
 
     def latest_consensus(self, currency: str) -> sqlite3.Row | None:
         return self.conn.execute(

@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from dataclasses import replace
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from .adapters import live_adapters, make_client, mock_adapters
 from .config import settings
-from .engine import compute_consensus, to_mids
+from .engine import compute_consensus, to_mids, update_reliability
+from .engine.independence import flag_correlated_pairs
 from .models import Observation, Tier, utcnow
 from .storage import Storage
 
@@ -43,6 +45,50 @@ async def gather_observations() -> list[Observation]:
     return observations
 
 
+def _correlation_guard(storage, currency, reliability):
+    """Flag copycat survey pairs over recent history; halve the weaker member.
+
+    Returns (pairs, penalty) where penalty maps the lower-reliability member of
+    each flagged pair to settings.correlation_penalty.
+    """
+    history = storage.recent_source_mids(
+        currency, Tier.AGGREGATOR.value, settings.correlation_runs
+    )
+    pairs = flag_correlated_pairs(
+        history,
+        tol=settings.correlation_tol,
+        threshold=settings.correlation_threshold,
+        min_runs=settings.correlation_min_runs,
+    )
+    prior = settings.reliability_prior
+    penalty: dict[str, float] = {}
+    for a, b in pairs:
+        weaker = a if reliability.get(a, prior) <= reliability.get(b, prior) else b
+        penalty[weaker] = settings.correlation_penalty
+    return pairs, penalty
+
+
+def _update_reliability(storage, currency, mids, consensus, rejected, prev_scores) -> None:
+    """EWMA-update each participating source against its OWN tier sub-consensus.
+
+    A source cut within its tier takes the maximum error (E_MAX); a kept source
+    is scored on its distance from its tier rate. Compared per tier so the
+    structural survey↔P2P gap never penalises a source for its mechanism.
+    """
+    tier_rate = {t.tier: t.rate for t in consensus.tiers}
+    rejected_names = {m.source for m in rejected}
+    e_max = settings.reliability_error_max
+    prior = settings.reliability_prior
+    for m in mids:
+        if m.source in rejected_names:
+            error = e_max
+        else:
+            tr = tier_rate.get(m.tier)
+            error = abs(m.mid - tr) / tr if tr else e_max
+        new_score = update_reliability(prev_scores.get(m.source, prior), error)
+        storage.upsert_reliability(currency, m.source, new_score, consensus.computed_at)
+
+
 def run_ingest(storage: Storage) -> None:
     observations = asyncio.run(gather_observations())
     if not observations:
@@ -61,11 +107,21 @@ def run_ingest(storage: Storage) -> None:
         by_ccy[mid.currency].append(mid)
 
     for currency in settings.currencies:
-        consensus, rejected = compute_consensus(by_ccy.get(currency, []))
+        mids = by_ccy.get(currency, [])
+        reliability = storage.reliability_scores(currency)
+        pairs, penalty = _correlation_guard(storage, currency, reliability)
+        consensus, rejected = compute_consensus(
+            mids, reliability=reliability, weight_penalty=penalty
+        )
         if consensus is None:
             log.warning("%s: no market observations this run", currency)
             continue
+        consensus = replace(consensus, correlated_pairs=tuple(pairs))
         storage.insert_consensus(consensus)
+        _update_reliability(storage, currency, mids, consensus, rejected, reliability)
+        if pairs:
+            log.info("%s correlated survey pairs %s; downweighted %s",
+                     currency, pairs, sorted(penalty))
         tier_brief = ", ".join(
             f"{tc.tier.value}={tc.rate:.2f}(n{tc.n_sources},w{tc.weight:.2f})"
             for tc in consensus.tiers

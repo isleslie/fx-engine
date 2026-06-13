@@ -55,6 +55,8 @@ export type SourceReading = {
   observed_at: string;
   divergence_pct: number | null;
   rejected: boolean;
+  reliability: number | null;
+  correlated_with: string | null;
 };
 
 export type Sources = {

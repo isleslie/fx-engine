@@ -1,0 +1,54 @@
+# Tier-1 survey sources whose parsing is a simple homepage scrape. Adding one of
+# these is a YAML entry here, not a Python module — the GenericSurveyAdapter
+# (src/fxengine/adapters/generic.py) fetches `url`, selects `container` elements,
+# and reads a currency code + rate(s) from each. Sources that need genuinely
+# custom logic stay as bespoke modules (see docs/sources.md):
+#   - aboki      : fetches three separate per-currency pages (not one homepage)
+#   - talentbase : per-currency tables keyed by "(XXX to NGN)" with label-based
+#                  Buying/Selling rows (not positional cells)
+#
+# Per entry:
+#   name           display + Observation source name
+#   url            page to GET
+#   enabled        skip the entry entirely when false (no fixture/test required)
+#   container      CSS selector for the repeating per-currency element
+#   code_selector  CSS selector (within container) holding the currency
+#   code_pattern   optional regex; group 1 is the ISO code (else the text is used)
+#   then EITHER
+#     value_selector + value_pattern   one element; 2 regex groups => buy & sell,
+#                                       1 group => a single mid
+#   OR
+#     buy_selector + sell_selector     two separate cells
+#   currencies     optional ISO allow-list (defaults to settings.currencies)
+
+sources:
+  # Migrated from the former bespoke ngnrates.py. Black-market card per currency;
+  # the value lives in the black-market link's span as "buy / sell".
+  - name: ngnrates
+    url: "https://www.ngnrates.com/"
+    enabled: true
+    container: "div.ng-box"
+    code_selector: "span.ng-fc"
+    value_selector: 'a[href*="/black-market"] span.ng-val'
+    value_pattern: '([\d.,]+)\s*/\s*([\d.,]+)'
+
+  # Migrated from the former bespoke nairatoday.py. One table row per currency;
+  # ISO code is in parens in the first cell, Buy/Sell are the next two cells.
+  - name: nairatoday
+    url: "https://nairatoday.com/"
+    enabled: true
+    container: "table.nt-rates-table tr"
+    code_selector: "td:nth-of-type(1)"
+    code_pattern: '\(([A-Z]{3})\)'
+    buy_selector: "td:nth-of-type(2)"
+    sell_selector: "td:nth-of-type(3)"
+
+  # Disabled (verified 2026-06-13): robots.txt permits (only /wp-admin/), but the
+  # homepage is a USD-base *international* FX table (decimals like 0.8671 EUR/USD),
+  # not a clean NGN parallel survey — no safe generic selector. Revisit via its
+  # claimed CurrencyRate API or deeper markup before enabling.
+  - name: fxratetoday
+    url: "https://fxratetoday.com/"
+    enabled: false
+    container: ""
+    code_selector: ""

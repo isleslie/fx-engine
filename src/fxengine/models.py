@@ -82,6 +82,7 @@ class ConsensusRate:
     inter_tier_spread_pct: float | None = None  # signed (P2P - survey) / survey, %
     tiers: tuple[TierConsensus, ...] = ()  # per-tier sub-consensus, in-memory carrier
     rejected_sources: tuple[str, ...] = ()  # sources cut within their tier this run
+    correlated_pairs: tuple[tuple[str, str], ...] = ()  # copycat survey pairs flagged
 
 
 def utcnow() -> datetime:

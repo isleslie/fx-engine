@@ -48,6 +48,7 @@ from ..config import settings
 from ..models import ConsensusRate, Tier, TierConsensus, utcnow
 from .normalize import SourceMid
 from .outliers import MAD_SCALE, reject_outliers
+from .reliability import weight_factor
 
 _FULL_TIER = 3  # surviving sources within a tier counting as full depth
 _TIGHT_DISPERSION = 0.02  # 2% within-tier rel-MAD ~ zero tightness credit beyond here
@@ -55,7 +56,10 @@ _CROSS_TIER_TOL = 0.03  # 3% spread between tier rates ~ zero cross-tier agreeme
 _SINGLE_TIER_CAP = 0.7  # one mechanism, however tight, cannot exceed this confidence
 
 
-def _sub_consensus(mids: list[SourceMid], k: float):
+def _sub_consensus(
+    mids: list[SourceMid], k: float,
+    reliability: dict[str, float], penalty: dict[str, float],
+):
     """Reconcile one tier. Returns (rate, dispersion, quality, kept, rejected)."""
     kept, rejected = reject_outliers(mids, k=k)
     now = utcnow()
@@ -64,12 +68,14 @@ def _sub_consensus(mids: list[SourceMid], k: float):
     mad = float(np.median(np.abs(rates - med))) * MAD_SCALE
 
     half_life = settings.freshness_half_life_minutes
+    prior = settings.reliability_prior
     weights = []
     for m, r in zip(kept, rates, strict=True):
         age_min = max((now - m.observed_at).total_seconds() / 60.0, 0.0)
         freshness = 0.5 ** (age_min / half_life)
         z = abs(r - med) / mad if mad > 0 else 0.0
-        weights.append(freshness * (1.0 / (1.0 + z)))
+        trust = weight_factor(reliability.get(m.source, prior))
+        weights.append(freshness * (1.0 / (1.0 + z)) * trust * penalty.get(m.source, 1.0))
     w = np.array(weights, dtype=float)
     if w.sum() == 0:  # everything ancient; fall back to unweighted
         w = np.ones_like(w)
@@ -85,11 +91,17 @@ def _sub_consensus(mids: list[SourceMid], k: float):
 def compute_consensus(
     mids: list[SourceMid],
     k: float | None = None,
+    reliability: dict[str, float] | None = None,
+    weight_penalty: dict[str, float] | None = None,
 ) -> tuple[ConsensusRate | None, list[SourceMid]]:
     """Tier-aware consensus for one currency. Returns (consensus, rejected).
 
     Returns (None, []) when there are no observations at all. `rejected` is the
-    union of every tier's rejected sources.
+    union of every tier's rejected sources. `reliability` maps source -> score
+    (0..1); absent sources use the neutral prior, so passing None leaves all
+    weights uniform and the rate unchanged. `weight_penalty` maps source -> a
+    within-tier weight multiplier (the independence guard halves copycats);
+    absent sources default to 1.0.
     """
     if not mids:
         return None, []
@@ -97,6 +109,8 @@ def compute_consensus(
     if any(m.currency != currency for m in mids):
         raise ValueError("compute_consensus expects a single currency per call")
     k = k if k is not None else settings.mad_k
+    rel = reliability or {}
+    penalty = weight_penalty or {}
     now = utcnow()
 
     by_tier: dict[Tier, list[SourceMid]] = defaultdict(list)
@@ -104,7 +118,7 @@ def compute_consensus(
         by_tier[m.tier].append(m)
 
     # Reconcile each tier on its own.
-    results = {tier: _sub_consensus(tmids, k) for tier, tmids in by_tier.items()}
+    results = {tier: _sub_consensus(tmids, k, rel, penalty) for tier, tmids in by_tier.items()}
 
     # Blend weights: configured per tier, renormalised over the tiers present.
     raw = {t: settings.tier_weights.get(t.value, 0.0) for t in results}

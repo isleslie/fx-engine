@@ -2,8 +2,10 @@ from datetime import timedelta
 
 import pytest
 
-from fxengine.engine import compute_consensus, reject_outliers, to_mids
+from fxengine.engine import compute_consensus, reject_outliers, to_mids, update_reliability
+from fxengine.engine.independence import flag_correlated_pairs
 from fxengine.engine.normalize import SourceMid
+from fxengine.engine.reliability import weight_factor
 from fxengine.models import Observation, Side, Tier, utcnow
 
 NOW = utcnow()
@@ -140,3 +142,65 @@ class TestConsensus:
                  mid("d", 1500), mid("e", 1500), mid("f", 1500)]
         consensus, _ = compute_consensus(panel)
         assert 0.0 <= consensus.confidence <= 1.0
+
+    def test_reliability_pulls_rate_toward_trusted_source(self):
+        panel = [mid("a", 1500), mid("b", 1520)]
+        base, _ = compute_consensus(panel)  # equal (prior) reliability
+        weighted, _ = compute_consensus(panel, reliability={"a": 1.0, "b": 0.0})
+        assert base.rate == pytest.approx(1510, abs=0.5)
+        assert weighted.rate < base.rate  # trusted a=1500 carries more weight
+
+    def test_uniform_reliability_leaves_rate_unchanged(self):
+        panel = [mid("a", 1500), mid("b", 1520)]
+        base, _ = compute_consensus(panel)
+        same, _ = compute_consensus(panel, reliability={"a": 0.5, "b": 0.5})
+        assert same.rate == pytest.approx(base.rate)
+
+
+class TestReliabilityScore:
+    def test_perfect_match_rises_from_prior(self):
+        assert update_reliability(0.5, 0.0) == pytest.approx(0.55)  # 0.9*0.5 + 0.1*1
+
+    def test_max_error_decays(self):
+        assert update_reliability(0.5, 0.02) == pytest.approx(0.45)  # quality 0
+
+    def test_score_clamped_to_unit_interval(self):
+        assert 0.0 <= update_reliability(0.0, 1.0) <= 1.0
+        assert 0.0 <= update_reliability(1.0, 0.0) <= 1.0
+
+    def test_weight_factor_spans_half_to_one(self):
+        assert weight_factor(0.0) == pytest.approx(0.5)
+        assert weight_factor(1.0) == pytest.approx(1.0)
+
+
+class TestIndependenceGuard:
+    def _hist(self, **sources):
+        # sources: name -> list of mids over runs r0..rN
+        return {
+            name: {f"r{i}": v for i, v in enumerate(vals)}
+            for name, vals in sources.items()
+        }
+
+    def test_identical_pair_flagged(self):
+        h = self._hist(a=[1500.0] * 12, b=[1500.05] * 12, c=[1480.0] * 12)
+        pairs = flag_correlated_pairs(h, tol=0.0005, threshold=0.8, min_runs=10)
+        assert pairs == [("a", "b")]  # c diverges; only a,b mirror
+
+    def test_below_min_runs_not_flagged(self):
+        h = self._hist(a=[1500.0] * 5, b=[1500.0] * 5)
+        assert flag_correlated_pairs(h, tol=0.0005, threshold=0.8, min_runs=10) == []
+
+    def test_occasional_match_below_threshold_not_flagged(self):
+        # Agree in 5 of 12 runs (<80%).
+        a = [1500.0] * 12
+        b = [1500.0] * 5 + [1530.0] * 7
+        h = self._hist(a=a, b=b)
+        assert flag_correlated_pairs(h, tol=0.0005, threshold=0.8, min_runs=10) == []
+
+    def test_penalty_downweights_a_copycat(self):
+        # a,b are copycats at 1500; c,d sit at 1505. All four survive rejection.
+        panel = [mid("a", 1500), mid("b", 1500), mid("c", 1505), mid("d", 1505)]
+        base, _ = compute_consensus(panel)
+        guarded, _ = compute_consensus(panel, weight_penalty={"b": 0.5})
+        # Halving copycat b shifts the mean off the 1500 cluster toward 1505.
+        assert guarded.rate > base.rate

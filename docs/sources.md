@@ -18,15 +18,19 @@ All publish daily/hourly parallel rates by surveying dealers. None offers a clea
 documented free API for the parallel rate, so each adapter scrapes the displayed
 rate. There is no ground truth here; that's why the consensus engine exists.
 
+Tier-1 sources come from two places: the **config-driven registry**
+(`config/source_registry.yaml` → `GenericSurveyAdapter`) for simple homepage
+scrapes, and **bespoke modules** for sites that need custom logic.
+
 | Source | Status | Notes |
 |---|---|---|
-| abokiforex.app | **WIRED** (`aboki.py`) | One headline rate per currency (no buy/sell), one page each for USD/GBP/EUR; rate from the "1 X to Naira" converter row, date from the `<h1>`. robots.txt disallows nothing. Partial page failures tolerated. |
-| nairatoday.com | **WIRED** (`nairatoday.py`) | Homepage server-renders `table.nt-rates-table` (Currency/Buy/Sell/CBN/Change); ISO code in parens. robots.txt: `/api/` disallowed, pages allowed, crawl-delay 1. |
-| nairaspot.com | **SKIPPED** | Next.js shell — crawlable HTML carries zero rate values; rates load client-side from `/api/`, which robots.txt disallows. Nothing compliant to scrape. Re-check if they ever server-render. |
-| ngnrates.com | **WIRED** (`ngnrates.py`) | Homepage `div.ng-box` cards: ISO in `span.ng-fc`, Black Market row's `span.ng-val` = "buy / sell". robots.txt: `Allow: /`. |
-| talentbase.ng | **WIRED** (`talentbase.py`) | Homepage has one table per currency with Buying/Selling Rate rows; quote date in the `<title>`. robots.txt: `Allow: /`. |
-| fxratetoday.com | not wired | Bonus sensor; claims a "CurrencyRate" API. |
-| monierate.com | not wired | Bonus sensor + prior art — already markets an official-vs-parallel spread tracker. Differentiation must be the consensus methodology. |
+| abokiforex.app | **WIRED** — bespoke (`aboki.py`) | One headline rate per currency (no buy/sell), one page each for USD/GBP/EUR; rate from the "1 X to Naira" converter row. Bespoke: fetches three per-currency pages, not one homepage. robots.txt disallows nothing. |
+| talentbase.ng | **WIRED** — bespoke (`talentbase.py`) | One table per currency keyed by "(XXX to NGN)", with label-based Buying/Selling rows. Bespoke: label-matching, not positional cells. robots.txt: `Allow: /`. |
+| ngnrates.com | **WIRED** — registry | `div.ng-box` cards: ISO in `span.ng-fc`, Black Market row's `span.ng-val` = "buy / sell". Migrated from a module to a YAML entry. robots.txt: `Allow: /`. |
+| nairatoday.com | **WIRED** — registry | `table.nt-rates-table` rows (Currency/Buy/Sell/CBN/Change); ISO in parens. Migrated to a YAML entry. robots.txt: `/api/` disallowed (we scrape the page), pages allowed. |
+| nairaspot.com | **SKIPPED** | Next.js shell — crawlable HTML carries zero rate values; rates load client-side from `/api/`, which robots.txt disallows. Nothing compliant to scrape. |
+| fxratetoday.com | registry entry, `enabled: false` | robots.txt permits (only `/wp-admin/`), but the homepage is a USD-base *international* FX table (decimals like 0.8671 EUR/USD), not a clean NGN parallel survey. No safe generic selector; revisit via its claimed CurrencyRate API. |
+| monierate.com | not wired | Prior-art aggregator (its own published spread tracker) rather than a raw dealer survey — ingesting it would be a derived/competitor number, not an independent sensor (same category issue as CoinGecko). Cloudflare content-signals robots.txt. Skip. |
 
 ## Tier 2 — transaction-based (USDT/NGN ≈ USD), `Tier.P2P`
 
@@ -85,17 +89,23 @@ sub-grade so the two are not weighted identically.
 1 USD and emit `currency="USD"`. Luno also exposes USDC/NGN but it is illiquid
 (wide bid/ask, thin volume) so it is not used. Revisit if USDT depegs materially.
 
-## Tier 3 — fintech / digital BDC published rates (`Tier.FINTECH`, Phase 2)
+## Tier 3 — fintech / digital BDC published rates (`Tier.FINTECH`) — SKIPPED
 
-A posted buy/sell rate per app, pegged near parallel — a *third* mechanism,
-distinct from both surveys and transaction-based feeds. Mostly in-app with no
-public endpoint; reverse-engineering app internals is ToS-sensitive — do NOT.
-Wire only platforms exposing a genuine public rate page/calculator. Candidates
-to verify in Phase 2: **Monica (monica.cash)** — has a public live-rate
-calculator, best first target; **Breet** — competitive posted rate; **Grey**,
-**Cleva**, **Raenest (Geegpay)**, **Dtunes**, **Lemonade** — verify for a public
-page first. Fold Tier 3 into the tier blend once ≥2 are wired (extend
-`tier_weights`, renormalise over present tiers).
+A posted buy/sell rate per app, pegged near parallel, would be a *third* mechanism
+distinct from surveys and transaction-based feeds. **Verified 2026-06-13 — none
+exposes a genuine independent public posted rate, so the tier is skipped** (the
+plan's explicit fallback; we do not reverse-engineer app internals).
+
+| Candidate | Finding | Decision |
+|---|---|---|
+| Monica (monica.cash) | Has a public `/calculator`, but it's **CoinGecko-derived** (market mid refreshed every 60s), not Monica's own off-ramp rate. Non-independent + circular (CoinGecko aggregates the exchanges we already use) — and CoinGecko is itself robots-skipped. | skip — not its own rate |
+| Breet, Grey, Raenest/Geegpay | Marketing homepages only; scattered unlabelled numbers, no structured posted rate. The real rate is in-app (auth). | skip — no public rate |
+| Cleva | SPA; rate rendered client-side, nothing server-side to read. | skip — client-rendered |
+| Dtunes, Lemonade | No public rate page found. | skip |
+
+`tier_weights` already carries a `tier3_fintech` entry as a forward placeholder; it
+is inert (no FINTECH source emits, so the tier never appears in a run and is never
+in the blend). Revisit if any fintech publishes its *own* posted rate cleanly.
 
 ## Tier 4 — Telegram/X BDC channels (noisy, optional)
 

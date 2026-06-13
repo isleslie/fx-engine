@@ -30,6 +30,7 @@ export default function SourcesTable({ currency }: { currency: string }) {
             <th className="pb-2 font-normal">Tier</th>
             <th className="pb-2 text-right font-normal">Mid</th>
             <th className="pb-2 text-right font-normal">Divergence</th>
+            <th className="pb-2 text-right font-normal">Reliability</th>
             <th className="hidden pb-2 text-right font-normal sm:table-cell">
               Seen
             </th>
@@ -55,6 +56,14 @@ export default function SourcesTable({ currency }: { currency: string }) {
                       cut
                     </span>
                   )}
+                  {s.correlated_with && (
+                    <span
+                      className="ml-2 text-[10px] text-muted"
+                      title={`Mirrors ${s.correlated_with} in most recent runs — weight reduced to avoid double-counting a shared quote`}
+                    >
+                      ≈{s.correlated_with}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 text-muted">
                   {TIER_LABEL[s.tier] ?? s.tier}
@@ -70,6 +79,11 @@ export default function SourcesTable({ currency }: { currency: string }) {
                   }`}
                 >
                   {s.divergence_pct != null ? fmtPct(s.divergence_pct) : "—"}
+                </td>
+                <td className="py-2 text-right text-chalk">
+                  {s.reliability != null
+                    ? `${Math.round(s.reliability * 100)}%`
+                    : "—"}
                 </td>
                 <td className="hidden py-2 text-right text-muted sm:table-cell">
                   {new Date(s.observed_at).toLocaleTimeString()}

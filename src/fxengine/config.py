@@ -4,12 +4,18 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Repo root, so file defaults resolve whether run from source or installed editable.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="FX_", env_file=".env", extra="ignore")
 
     db_path: Path = Path("data/fx.db")
     currencies: list[str] = ["USD", "GBP", "EUR"]
+    # Config-driven Tier-1 survey sources (one YAML entry instead of a module).
+    # The Docker image ships this at /app/config and sets FX_SOURCE_REGISTRY.
+    source_registry: Path = _REPO_ROOT / "config" / "source_registry.yaml"
     ingest_interval_minutes: int = 30
     use_mock_sources: bool = True  # flip to False once live adapters land
     # Consensus tuning
@@ -25,6 +31,21 @@ class Settings(BaseSettings):
         "tier2_p2p": 0.5,
         "tier3_fintech": 0.5,
     }
+    # Per-source reliability (slow EWMA of how close a source sits to its tier
+    # sub-consensus). Modulates within-tier weight by (0.5 + reliability/2), so
+    # it scales a source between 0.5x and 1.0x — never zeroes it.
+    reliability_alpha: float = 0.1  # EWMA learning rate
+    reliability_error_max: float = 0.02  # 2% error => zero reliability credit
+    reliability_prior: float = 0.5  # neutral starting score for a new source
+    # Independence guard: copycat survey sources inflate confidence. Over the last
+    # N runs, a survey pair whose mids match within `tol` in > `threshold` of the
+    # runs they share (and with at least `min_runs` shared) is flagged correlated;
+    # the lower-reliability member's within-tier weight is multiplied by `penalty`.
+    correlation_runs: int = 30
+    correlation_tol: float = 0.0005  # 0.05% — "effectively identical"
+    correlation_threshold: float = 0.8
+    correlation_min_runs: int = 10  # need this many shared runs before flagging
+    correlation_penalty: float = 0.5  # weight multiplier on the lower-reliability peer
     http_timeout_seconds: float = 15.0
     user_agent: str = "fx-engine/0.1 (personal research; +https://github.com/CHANGE_ME/fx-engine)"
 
