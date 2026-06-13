@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -12,26 +11,20 @@ import respx
 
 from fxengine.adapters.base import make_client
 from fxengine.adapters.talentbase import URL, TalentBaseAdapter, parse
-from fxengine.models import Side, Tier
+from fxengine.models import Side, Tier, utcnow
 
 HTML = (Path(__file__).parent / "fixtures" / "talentbase.html").read_text(encoding="utf-8")
 
 
 class TestParse:
     def test_majors_buy_sell(self):
-        _, rows = parse(HTML)
-        d = {c: (b, s) for c, b, s in rows}
+        d = {c: (b, s) for c, b, s in parse(HTML)}
         assert d["USD"] == (1388.0, 1400.0)
         assert d["EUR"] == (1590.0, 1620.0)
         assert d["GBP"] == (1840.0, 1880.0)
 
-    def test_observed_at_from_title(self):
-        observed_at, _ = parse(HTML)
-        assert observed_at == datetime(2026, 6, 12, tzinfo=UTC)
-
-    def test_no_tables_raises_nothing_but_empty(self):
-        observed_at, rows = parse("<html><title>x</title><body></body></html>")
-        assert rows == []
+    def test_no_tables_returns_empty(self):
+        assert parse("<html><title>x</title><body></body></html>") == []
 
 
 def _fetch():
@@ -50,7 +43,9 @@ def test_fetch_emits_buy_and_sell():
     gbp = {o.side: o.rate for o in obs if o.currency == "GBP"}
     assert gbp[Side.BUY] == 1840.0 and gbp[Side.SELL] == 1880.0
     assert all(o.tier is Tier.AGGREGATOR and o.source == "talentbase" for o in obs)
-    assert all(o.observed_at == datetime(2026, 6, 12, tzinfo=UTC) for o in obs)
+    # observed_at is the fetch time (page carries only a date), keeping freshness
+    # comparable to the other survey sources rather than a midnight timestamp.
+    assert all((utcnow() - o.observed_at).total_seconds() < 60 for o in obs)
 
 
 @respx.mock
