@@ -25,6 +25,7 @@ from .schemas import (
     OfficialOut,
     SourceOut,
     SourcesOut,
+    TierOut,
 )
 
 STATIC_DIR = Path(__file__).resolve().parents[3] / "static"
@@ -84,12 +85,21 @@ def latest(currency: str = Query("USD")) -> LatestOut:
     cons_row = storage.latest_consensus(c)
     off_row = storage.latest_official(c)
 
+    tiers = [
+        TierOut(
+            tier=t["tier"], rate=t["rate"], n_sources=t["n_sources"],
+            n_rejected=t["n_rejected"], dispersion=t["dispersion"], weight=t["weight"],
+        )
+        for t in (storage.latest_tier_consensus(c) if cons_row else [])
+    ]
     consensus = (
         ConsensusOut(
             currency=cons_row["currency"], rate=cons_row["rate"],
             confidence=cons_row["confidence"], n_sources=cons_row["n_sources"],
             n_rejected=cons_row["n_rejected"], dispersion=cons_row["dispersion"],
             computed_at=datetime.fromisoformat(cons_row["computed_at"]),
+            inter_tier_spread_pct=cons_row["inter_tier_spread_pct"],
+            tiers=tiers,
         ) if cons_row else None
     )
     official = (
@@ -139,6 +149,9 @@ def sources(currency: str = Query("USD")) -> SourcesOut:
     c = _ccy(currency)
     cons_row = storage.latest_consensus(c)
     cons_rate = cons_row["rate"] if cons_row else None
+    rejected = set(
+        (cons_row["rejected_sources"] or "").split(",") if cons_row else []
+    ) - {""}
 
     out = []
     for row in storage.latest_observations(c):
@@ -150,6 +163,7 @@ def sources(currency: str = Query("USD")) -> SourcesOut:
                 source=row["source"], tier=row["tier"], mid=round(row["mid"], 2),
                 observed_at=datetime.fromisoformat(row["observed_at"]),
                 divergence_pct=divergence,
+                rejected=row["source"] in rejected,
             )
         )
     return SourcesOut(currency=c, consensus=cons_rate, sources=out)

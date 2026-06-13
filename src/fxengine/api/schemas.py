@@ -8,6 +8,15 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class TierOut(BaseModel):
+    tier: str
+    rate: float
+    n_sources: int
+    n_rejected: int
+    dispersion: float
+    weight: float  # normalised blend weight applied this run
+
+
 class ConsensusOut(BaseModel):
     currency: str
     rate: float
@@ -16,6 +25,8 @@ class ConsensusOut(BaseModel):
     n_rejected: int
     dispersion: float
     computed_at: datetime
+    inter_tier_spread_pct: float | None = None  # signed (P2P - survey) / survey, %
+    tiers: list[TierOut] = []  # per-mechanism sub-consensus
 
 
 class OfficialOut(BaseModel):
@@ -50,6 +61,7 @@ class SourceOut(BaseModel):
     mid: float
     observed_at: datetime
     divergence_pct: float | None  # vs latest consensus
+    rejected: bool = False  # cut as an outlier within its tier this run
 
 
 class SourcesOut(BaseModel):

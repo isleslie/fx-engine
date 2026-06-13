@@ -39,14 +39,35 @@ export default function SourcesTable({ currency }: { currency: string }) {
           {data.sources.map((s) => {
             const wide = Math.abs(s.divergence_pct ?? 0) > 2;
             return (
-              <tr key={s.source} className="border-t border-line">
-                <td className="py-2 text-bone">{s.source}</td>
+              <tr
+                key={s.source}
+                className={`border-t border-line ${s.rejected ? "opacity-50" : ""}`}
+              >
+                <td className="py-2 text-bone">
+                  <span className={s.rejected ? "line-through" : ""}>
+                    {s.source}
+                  </span>
+                  {s.rejected && (
+                    <span
+                      className="ml-2 rounded-sm border border-oxide px-1 text-[10px] uppercase tracking-wider text-oxide"
+                      title="Cut as an outlier within its tier this run — excluded from the consensus"
+                    >
+                      cut
+                    </span>
+                  )}
+                </td>
                 <td className="py-2 text-muted">
                   {TIER_LABEL[s.tier] ?? s.tier}
                 </td>
                 <td className="py-2 text-right text-bone">{fmtNaira(s.mid)}</td>
                 <td
-                  className={`py-2 text-right ${wide ? "text-oxide" : "text-chalk"}`}
+                  className={`py-2 text-right ${
+                    s.rejected
+                      ? "text-muted"
+                      : wide
+                        ? "text-oxide"
+                        : "text-chalk"
+                  }`}
                 >
                   {s.divergence_pct != null ? fmtPct(s.divergence_pct) : "—"}
                 </td>
@@ -58,6 +79,11 @@ export default function SourcesTable({ currency }: { currency: string }) {
           })}
         </tbody>
       </table>
+      <p className="mt-3 text-[11px] text-muted">
+        <span className="text-oxide">Cut</span> = excluded as an outlier within
+        its tier; its divergence is shown for reference but did not feed the
+        consensus.
+      </p>
     </section>
   );
 }

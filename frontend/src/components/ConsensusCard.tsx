@@ -1,6 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, fmtNaira, fmtPct } from "../lib/api";
 
+const TIER_LABEL: Record<string, string> = {
+  tier1_aggregator: "survey",
+  tier2_p2p: "p2p",
+  tier3_fintech: "fintech",
+};
+
 export default function ConsensusCard({ currency }: { currency: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["latest", currency],
@@ -44,6 +50,35 @@ export default function ConsensusCard({ currency }: { currency: string }) {
             {new Date(consensus.computed_at).toLocaleString()}
           </time>
         </p>
+
+        {consensus.tiers.length > 1 && (
+          <div className="mt-4 border-t border-line pt-3">
+            <p className="font-data text-[11px] uppercase tracking-widest text-muted">
+              By mechanism
+            </p>
+            <div className="font-data mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              {consensus.tiers.map((t) => (
+                <span key={t.tier} className="text-chalk">
+                  {TIER_LABEL[t.tier] ?? t.tier}{" "}
+                  <span className="text-bone">{fmtNaira(t.rate)}</span>
+                  <span className="text-muted">
+                    {" "}
+                    ·{t.n_sources}src ·w{t.weight.toFixed(2)}
+                  </span>
+                </span>
+              ))}
+            </div>
+            {consensus.inter_tier_spread_pct != null && (
+              <p className="mt-2 text-sm text-muted">
+                survey→p2p gap{" "}
+                <span className="text-oxide">
+                  {fmtPct(consensus.inter_tier_spread_pct)}
+                </span>{" "}
+                — transaction vs survey pricing
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <dl className="grid content-start gap-4 sm:text-right">
