@@ -70,6 +70,11 @@ Config is env-driven via `FX_*` vars (src/fxengine/config.py). Key ones:
 - Adapter contract: subclass `BaseAdapter` (src/fxengine/adapters/base.py), set
   `name` + `tier`, implement `async fetch() -> list[Observation]`. Raise on failure —
   the worker isolates per-adapter errors. One module per source.
+- Simple Tier-1 survey scrapes are config-driven: add a YAML entry in
+  `config/source_registry.yaml` (consumed by `adapters/generic.py`) with a
+  fixture in tests/fixtures/<name>.html — no module needed. Bespoke modules are
+  only for sources needing custom logic (aboki: multi-page; talentbase: tables).
+  The registry ships in the Docker image (`COPY config/`, `FX_SOURCE_REGISTRY`).
 - API schemas (src/fxengine/api/schemas.py) and frontend types
   (frontend/src/lib/api.ts) mirror 1:1 — change them together.
 - Tests offline: mock HTTP with respx + saved HTML fixtures in tests/fixtures/

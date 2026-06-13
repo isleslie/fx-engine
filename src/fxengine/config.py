@@ -4,12 +4,18 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Repo root, so file defaults resolve whether run from source or installed editable.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="FX_", env_file=".env", extra="ignore")
 
     db_path: Path = Path("data/fx.db")
     currencies: list[str] = ["USD", "GBP", "EUR"]
+    # Config-driven Tier-1 survey sources (one YAML entry instead of a module).
+    # The Docker image ships this at /app/config and sets FX_SOURCE_REGISTRY.
+    source_registry: Path = _REPO_ROOT / "config" / "source_registry.yaml"
     ingest_interval_minutes: int = 30
     use_mock_sources: bool = True  # flip to False once live adapters land
     # Consensus tuning

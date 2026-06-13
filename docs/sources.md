@@ -18,15 +18,19 @@ All publish daily/hourly parallel rates by surveying dealers. None offers a clea
 documented free API for the parallel rate, so each adapter scrapes the displayed
 rate. There is no ground truth here; that's why the consensus engine exists.
 
+Tier-1 sources come from two places: the **config-driven registry**
+(`config/source_registry.yaml` → `GenericSurveyAdapter`) for simple homepage
+scrapes, and **bespoke modules** for sites that need custom logic.
+
 | Source | Status | Notes |
 |---|---|---|
-| abokiforex.app | **WIRED** (`aboki.py`) | One headline rate per currency (no buy/sell), one page each for USD/GBP/EUR; rate from the "1 X to Naira" converter row, date from the `<h1>`. robots.txt disallows nothing. Partial page failures tolerated. |
-| nairatoday.com | **WIRED** (`nairatoday.py`) | Homepage server-renders `table.nt-rates-table` (Currency/Buy/Sell/CBN/Change); ISO code in parens. robots.txt: `/api/` disallowed, pages allowed, crawl-delay 1. |
-| nairaspot.com | **SKIPPED** | Next.js shell — crawlable HTML carries zero rate values; rates load client-side from `/api/`, which robots.txt disallows. Nothing compliant to scrape. Re-check if they ever server-render. |
-| ngnrates.com | **WIRED** (`ngnrates.py`) | Homepage `div.ng-box` cards: ISO in `span.ng-fc`, Black Market row's `span.ng-val` = "buy / sell". robots.txt: `Allow: /`. |
-| talentbase.ng | **WIRED** (`talentbase.py`) | Homepage has one table per currency with Buying/Selling Rate rows; quote date in the `<title>`. robots.txt: `Allow: /`. |
-| fxratetoday.com | not wired | Bonus sensor; claims a "CurrencyRate" API. |
-| monierate.com | not wired | Bonus sensor + prior art — already markets an official-vs-parallel spread tracker. Differentiation must be the consensus methodology. |
+| abokiforex.app | **WIRED** — bespoke (`aboki.py`) | One headline rate per currency (no buy/sell), one page each for USD/GBP/EUR; rate from the "1 X to Naira" converter row. Bespoke: fetches three per-currency pages, not one homepage. robots.txt disallows nothing. |
+| talentbase.ng | **WIRED** — bespoke (`talentbase.py`) | One table per currency keyed by "(XXX to NGN)", with label-based Buying/Selling rows. Bespoke: label-matching, not positional cells. robots.txt: `Allow: /`. |
+| ngnrates.com | **WIRED** — registry | `div.ng-box` cards: ISO in `span.ng-fc`, Black Market row's `span.ng-val` = "buy / sell". Migrated from a module to a YAML entry. robots.txt: `Allow: /`. |
+| nairatoday.com | **WIRED** — registry | `table.nt-rates-table` rows (Currency/Buy/Sell/CBN/Change); ISO in parens. Migrated to a YAML entry. robots.txt: `/api/` disallowed (we scrape the page), pages allowed. |
+| nairaspot.com | **SKIPPED** | Next.js shell — crawlable HTML carries zero rate values; rates load client-side from `/api/`, which robots.txt disallows. Nothing compliant to scrape. |
+| fxratetoday.com | registry entry, `enabled: false` | robots.txt permits (only `/wp-admin/`), but the homepage is a USD-base *international* FX table (decimals like 0.8671 EUR/USD), not a clean NGN parallel survey. No safe generic selector; revisit via its claimed CurrencyRate API. |
+| monierate.com | not wired | Prior-art aggregator (its own published spread tracker) rather than a raw dealer survey — ingesting it would be a derived/competitor number, not an independent sensor (same category issue as CoinGecko). Cloudflare content-signals robots.txt. Skip. |
 
 ## Tier 2 — transaction-based (USDT/NGN ≈ USD), `Tier.P2P`
 

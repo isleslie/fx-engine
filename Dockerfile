@@ -19,6 +19,7 @@ RUN if [ -f uv.lock ]; then uv sync --frozen --no-dev --no-install-project; \
     else uv sync --no-dev --no-install-project; fi
 
 COPY src/ src/
+COPY config/ config/
 COPY README.md ./
 RUN uv sync --no-dev
 
@@ -27,6 +28,7 @@ COPY --from=frontend /build/dist/ static/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     FX_DB_PATH=/data/fx.db \
+    FX_SOURCE_REGISTRY=/app/config/source_registry.yaml \
     PYTHONUNBUFFERED=1
 
 # Default command is the web tier; compose overrides this for the worker
