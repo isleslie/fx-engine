@@ -62,6 +62,7 @@ class SourceOut(BaseModel):
     observed_at: datetime
     divergence_pct: float | None  # vs latest consensus
     rejected: bool = False  # cut as an outlier within its tier this run
+    reliability: float | None = None  # slow EWMA trust score (0..1), None if unseen
 
 
 class SourcesOut(BaseModel):

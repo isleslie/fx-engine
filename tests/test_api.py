@@ -42,6 +42,7 @@ def client(tmp_path, monkeypatch):
             rejected_sources=("p2p",),
         )
     )
+    storage.upsert_reliability("USD", "aboki", 0.8, now)
     storage.close()
 
     from fxengine.api.app import app
@@ -93,6 +94,9 @@ def test_sources_divergence(client):
     # rejected flag mirrors the consensus run's rejected_sources set.
     assert sources["aboki"]["rejected"] is False
     assert sources["p2p"]["rejected"] is True
+    # reliability surfaced where a score exists; None for unseen sources.
+    assert sources["aboki"]["reliability"] == 0.8
+    assert sources["p2p"]["reliability"] is None
 
 
 def test_unknown_currency_404(client):

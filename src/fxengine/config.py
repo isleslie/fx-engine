@@ -31,6 +31,12 @@ class Settings(BaseSettings):
         "tier2_p2p": 0.5,
         "tier3_fintech": 0.5,
     }
+    # Per-source reliability (slow EWMA of how close a source sits to its tier
+    # sub-consensus). Modulates within-tier weight by (0.5 + reliability/2), so
+    # it scales a source between 0.5x and 1.0x — never zeroes it.
+    reliability_alpha: float = 0.1  # EWMA learning rate
+    reliability_error_max: float = 0.02  # 2% error => zero reliability credit
+    reliability_prior: float = 0.5  # neutral starting score for a new source
     http_timeout_seconds: float = 15.0
     user_agent: str = "fx-engine/0.1 (personal research; +https://github.com/CHANGE_ME/fx-engine)"
 

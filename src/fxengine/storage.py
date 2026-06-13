@@ -71,6 +71,16 @@ CREATE TABLE IF NOT EXISTS official (
     UNIQUE (source, currency, observed_at)
 );
 CREATE INDEX IF NOT EXISTS ix_official_ccy_time ON official (currency, observed_at);
+
+-- Slow per-source reliability EWMA (one row per source per currency).
+CREATE TABLE IF NOT EXISTS source_stats (
+    source TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    score REAL NOT NULL,
+    n_runs INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (source, currency)
+);
 """
 
 
@@ -156,7 +166,28 @@ class Storage:
             )
         self.conn.commit()
 
+    def upsert_reliability(
+        self, currency: str, source: str, score: float, updated_at: datetime
+    ) -> None:
+        """Write a source's new EWMA score, incrementing its run count."""
+        self.conn.execute(
+            "INSERT INTO source_stats (source, currency, score, n_runs, updated_at) "
+            "VALUES (?, ?, ?, 1, ?) "
+            "ON CONFLICT(source, currency) DO UPDATE SET "
+            "score = excluded.score, n_runs = source_stats.n_runs + 1, "
+            "updated_at = excluded.updated_at",
+            (source, currency, score, _iso(updated_at)),
+        )
+        self.conn.commit()
+
     # ---------- reads (web tier) ----------
+
+    def reliability_scores(self, currency: str) -> dict[str, float]:
+        """source -> reliability score for a currency (callers default the rest)."""
+        rows = self.conn.execute(
+            "SELECT source, score FROM source_stats WHERE currency = ?", (currency,)
+        ).fetchall()
+        return {r["source"]: r["score"] for r in rows}
 
     def latest_consensus(self, currency: str) -> sqlite3.Row | None:
         return self.conn.execute(

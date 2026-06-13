@@ -80,6 +80,22 @@ def test_migration_adds_inter_tier_column_to_legacy_db(tmp_path):
     storage.close()
 
 
+def test_source_stats_upsert_and_increment(tmp_path):
+    storage = make_storage(tmp_path)
+    now = utcnow()
+    storage.upsert_reliability("USD", "aboki", 0.6, now)
+    assert storage.reliability_scores("USD") == {"aboki": 0.6}
+    storage.upsert_reliability("USD", "aboki", 0.7, now)  # same key → update + n_runs++
+    assert storage.reliability_scores("USD")["aboki"] == 0.7
+    row = storage.conn.execute(
+        "SELECT n_runs FROM source_stats WHERE source='aboki' AND currency='USD'"
+    ).fetchone()
+    assert row["n_runs"] == 2
+    # scoped per currency
+    assert storage.reliability_scores("GBP") == {}
+    storage.close()
+
+
 def test_official_separate_from_market(tmp_path):
     storage = make_storage(tmp_path)
     now = utcnow()

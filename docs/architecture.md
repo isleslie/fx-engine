@@ -97,11 +97,22 @@ as ground truth.
    reaches 3%. The upshot: one tight mechanism alone is **capped at 0.7** (no
    corroboration), while two mechanisms that genuinely agree can exceed it; a wide
    survey↔P2P gap drives confidence toward 0 ("treat with caution").
-4. **Inter-tier spread** — the signed survey→P2P gap is computed and stored every
+4. **Per-source reliability** (`reliability.py`) — a slow EWMA so sources earn
+   trust across runs, not within one. After each run, for every participating
+   source: `error = |source_mid − tier_sub_consensus| / tier_sub_consensus`
+   (a source cut within its tier takes the max, `error = E_MAX = 2%`);
+   `quality = max(0, 1 − error/E_MAX)`; `score = (1−α)·score_prev + α·quality`
+   with `α = 0.1` and a neutral prior of 0.5. The score feeds back as a
+   within-tier weight factor of `(0.5 + score/2)` — a proven source counts up to
+   2× an erratic one, but none is ever zeroed. Crucially the comparison is to the
+   source's **own tier** sub-consensus, so the structural survey↔P2P gap never
+   penalises a source for its mechanism. Scores persist in `source_stats` and are
+   surfaced per source via `/api/sources`.
+5. **Inter-tier spread** — the signed survey→P2P gap is computed and stored every
    run. It is itself a signal: a stable gap reads as structural (two different
    liquidity pools), a jumpy one as noise. Surfaced so the methodology is honest
    that it reconciles mechanisms by weight rather than averaging them blindly.
-5. **Spread vs anchor** — blended consensus minus the CBN official anchor, absolute
+6. **Spread vs anchor** — blended consensus minus the CBN official anchor, absolute
    and %, stored as history for charting.
 
 Tuning lives in `config.py` (`FX_MAD_K`, `FX_FRESHNESS_HALF_LIFE_MINUTES`,
@@ -126,6 +137,8 @@ mechanism is privileged.
   (currency, computed_at).
 - `official(source, currency, rate, observed_at, ingested_at)` — the CBN anchor
   series, kept apart from market observations.
+- `source_stats(source, currency, score, n_runs, updated_at)` — per-source
+  reliability EWMA, UNIQUE(source, currency); upserted each run.
 
 All writes are `INSERT OR IGNORE` against those UNIQUE keys, so re-runs are
 idempotent (NGX discipline carried over). Schema changes are additive only

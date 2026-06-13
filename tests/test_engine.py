@@ -2,8 +2,9 @@ from datetime import timedelta
 
 import pytest
 
-from fxengine.engine import compute_consensus, reject_outliers, to_mids
+from fxengine.engine import compute_consensus, reject_outliers, to_mids, update_reliability
 from fxengine.engine.normalize import SourceMid
+from fxengine.engine.reliability import weight_factor
 from fxengine.models import Observation, Side, Tier, utcnow
 
 NOW = utcnow()
@@ -140,3 +141,32 @@ class TestConsensus:
                  mid("d", 1500), mid("e", 1500), mid("f", 1500)]
         consensus, _ = compute_consensus(panel)
         assert 0.0 <= consensus.confidence <= 1.0
+
+    def test_reliability_pulls_rate_toward_trusted_source(self):
+        panel = [mid("a", 1500), mid("b", 1520)]
+        base, _ = compute_consensus(panel)  # equal (prior) reliability
+        weighted, _ = compute_consensus(panel, reliability={"a": 1.0, "b": 0.0})
+        assert base.rate == pytest.approx(1510, abs=0.5)
+        assert weighted.rate < base.rate  # trusted a=1500 carries more weight
+
+    def test_uniform_reliability_leaves_rate_unchanged(self):
+        panel = [mid("a", 1500), mid("b", 1520)]
+        base, _ = compute_consensus(panel)
+        same, _ = compute_consensus(panel, reliability={"a": 0.5, "b": 0.5})
+        assert same.rate == pytest.approx(base.rate)
+
+
+class TestReliabilityScore:
+    def test_perfect_match_rises_from_prior(self):
+        assert update_reliability(0.5, 0.0) == pytest.approx(0.55)  # 0.9*0.5 + 0.1*1
+
+    def test_max_error_decays(self):
+        assert update_reliability(0.5, 0.02) == pytest.approx(0.45)  # quality 0
+
+    def test_score_clamped_to_unit_interval(self):
+        assert 0.0 <= update_reliability(0.0, 1.0) <= 1.0
+        assert 0.0 <= update_reliability(1.0, 0.0) <= 1.0
+
+    def test_weight_factor_spans_half_to_one(self):
+        assert weight_factor(0.0) == pytest.approx(0.5)
+        assert weight_factor(1.0) == pytest.approx(1.0)

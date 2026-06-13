@@ -152,18 +152,21 @@ def sources(currency: str = Query("USD")) -> SourcesOut:
     rejected = set(
         (cons_row["rejected_sources"] or "").split(",") if cons_row else []
     ) - {""}
+    reliability = storage.reliability_scores(c)
 
     out = []
     for row in storage.latest_observations(c):
         divergence = (
             round((row["mid"] - cons_rate) / cons_rate * 100, 3) if cons_rate else None
         )
+        score = reliability.get(row["source"])
         out.append(
             SourceOut(
                 source=row["source"], tier=row["tier"], mid=round(row["mid"], 2),
                 observed_at=datetime.fromisoformat(row["observed_at"]),
                 divergence_pct=divergence,
                 rejected=row["source"] in rejected,
+                reliability=round(score, 3) if score is not None else None,
             )
         )
     return SourcesOut(currency=c, consensus=cons_rate, sources=out)

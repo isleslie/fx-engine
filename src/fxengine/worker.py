@@ -16,7 +16,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from .adapters import live_adapters, make_client, mock_adapters
 from .config import settings
-from .engine import compute_consensus, to_mids
+from .engine import compute_consensus, to_mids, update_reliability
 from .models import Observation, Tier, utcnow
 from .storage import Storage
 
@@ -43,6 +43,27 @@ async def gather_observations() -> list[Observation]:
     return observations
 
 
+def _update_reliability(storage, currency, mids, consensus, rejected, prev_scores) -> None:
+    """EWMA-update each participating source against its OWN tier sub-consensus.
+
+    A source cut within its tier takes the maximum error (E_MAX); a kept source
+    is scored on its distance from its tier rate. Compared per tier so the
+    structural survey↔P2P gap never penalises a source for its mechanism.
+    """
+    tier_rate = {t.tier: t.rate for t in consensus.tiers}
+    rejected_names = {m.source for m in rejected}
+    e_max = settings.reliability_error_max
+    prior = settings.reliability_prior
+    for m in mids:
+        if m.source in rejected_names:
+            error = e_max
+        else:
+            tr = tier_rate.get(m.tier)
+            error = abs(m.mid - tr) / tr if tr else e_max
+        new_score = update_reliability(prev_scores.get(m.source, prior), error)
+        storage.upsert_reliability(currency, m.source, new_score, consensus.computed_at)
+
+
 def run_ingest(storage: Storage) -> None:
     observations = asyncio.run(gather_observations())
     if not observations:
@@ -61,11 +82,14 @@ def run_ingest(storage: Storage) -> None:
         by_ccy[mid.currency].append(mid)
 
     for currency in settings.currencies:
-        consensus, rejected = compute_consensus(by_ccy.get(currency, []))
+        mids = by_ccy.get(currency, [])
+        reliability = storage.reliability_scores(currency)
+        consensus, rejected = compute_consensus(mids, reliability=reliability)
         if consensus is None:
             log.warning("%s: no market observations this run", currency)
             continue
         storage.insert_consensus(consensus)
+        _update_reliability(storage, currency, mids, consensus, rejected, reliability)
         tier_brief = ", ".join(
             f"{tc.tier.value}={tc.rate:.2f}(n{tc.n_sources},w{tc.weight:.2f})"
             for tc in consensus.tiers
