@@ -66,14 +66,26 @@ def run_ingest(storage: Storage) -> None:
             log.warning("%s: no market observations this run", currency)
             continue
         storage.insert_consensus(consensus)
+        tier_brief = ", ".join(
+            f"{tc.tier.value}={tc.rate:.2f}(n{tc.n_sources},w{tc.weight:.2f})"
+            for tc in consensus.tiers
+        )
+        spread = (
+            f", survey→P2P {consensus.inter_tier_spread_pct:+.2f}%"
+            if consensus.inter_tier_spread_pct is not None
+            else ""
+        )
         log.info(
-            "%s consensus %.2f (confidence %.2f, %d sources, %d rejected: %s)",
+            "%s consensus %.2f (confidence %.2f, %d sources, %d rejected: %s) "
+            "[%s%s]",
             currency,
             consensus.rate,
             consensus.confidence,
             consensus.n_sources,
             consensus.n_rejected,
             [m.source for m in rejected] or "none",
+            tier_brief,
+            spread,
         )
 
 

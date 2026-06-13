@@ -1,4 +1,6 @@
-from fxengine.models import ConsensusRate, Observation, Side, Tier, utcnow
+import sqlite3
+
+from fxengine.models import ConsensusRate, Observation, Side, Tier, TierConsensus, utcnow
 from fxengine.storage import Storage
 
 
@@ -24,6 +26,57 @@ def test_consensus_roundtrip_and_latest(tmp_path):
     assert row["rate"] == 1510.0
     history = storage.consensus_history("USD", since=t1)
     assert len(history) == 2
+    storage.close()
+
+
+def test_tier_consensus_persisted_with_blend(tmp_path):
+    storage = make_storage(tmp_path)
+    now = utcnow()
+    c = ConsensusRate(
+        "USD", 1442.0, 0.8, 5, 0, 0.001, now,
+        inter_tier_spread_pct=-1.5,
+        tiers=(
+            TierConsensus(Tier.AGGREGATOR, 1450.0, 4, 0, 0.0005, 0.5),
+            TierConsensus(Tier.P2P, 1428.0, 1, 0, 0.0, 0.5),
+        ),
+    )
+    storage.insert_consensus(c)
+    row = storage.latest_consensus("USD")
+    assert row["rate"] == 1442.0
+    assert row["inter_tier_spread_pct"] == -1.5
+    tiers = {r["tier"]: r for r in storage.latest_tier_consensus("USD")}
+    assert set(tiers) == {"tier1_aggregator", "tier2_p2p"}
+    assert tiers["tier2_p2p"]["rate"] == 1428.0
+    assert tiers["tier1_aggregator"]["weight"] == 0.5
+    storage.close()
+
+
+def test_migration_adds_inter_tier_column_to_legacy_db(tmp_path):
+    # Simulate a pre-tier-aware DB: consensus table without the new column.
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE consensus (
+            id INTEGER PRIMARY KEY, currency TEXT, rate REAL, confidence REAL,
+            n_sources INTEGER, n_rejected INTEGER, dispersion REAL, computed_at TEXT,
+            UNIQUE (currency, computed_at)
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO consensus (currency, rate, confidence, n_sources, n_rejected, "
+        "dispersion, computed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("USD", 1400.0, 0.9, 4, 0, 0.001, "2026-06-01T00:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    # Opening through Storage must add the column and leave the old row readable.
+    storage = Storage(db)
+    legacy = storage.latest_consensus("USD")
+    assert legacy["rate"] == 1400.0
+    assert legacy["inter_tier_spread_pct"] is None  # nullable, old row unaffected
     storage.close()
 
 

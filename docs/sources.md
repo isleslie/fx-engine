@@ -28,30 +28,74 @@ rate. There is no ground truth here; that's why the consensus engine exists.
 | fxratetoday.com | not wired | Bonus sensor; claims a "CurrencyRate" API. |
 | monierate.com | not wired | Bonus sensor + prior art — already markets an official-vs-parallel spread tracker. Differentiation must be the consensus methodology. |
 
-## Tier 2 — P2P crypto / local exchanges (USDT/NGN ≈ USD)
+## Tier 2 — transaction-based (USDT/NGN ≈ USD), `Tier.P2P`
 
-Strongest transaction-based signal (trades actually clearing, not surveys). The
-2024 crackdown reshaped this: Binance suspended all naira services Feb 2024; SEC
-declared its operations illegal. 2026 rules require TIN/NIN for transacting on
-licensed platforms — that governs trading, not reading public market data.
+Strongest signal (trades actually clearing, not surveys). The 2024 crackdown
+reshaped this: Binance suspended all naira services Feb 2024; SEC declared its
+operations illegal. 2026 rules require TIN/NIN for *transacting* on licensed
+platforms — that governs trading, not reading public market data.
 
-| Source | Status | Notes |
-|---|---|---|
-| Quidax | **WIRED** (`quidax.py`) | Public ticker confirmed: `GET app.quidax.io/api/v1/markets/tickers/usdtngn` → buy/sell/last + unix `at`. We use the order-book mid ((buy+sell)/2) as a USD MID observation. robots.txt only blocks `?*attrc=` URLs. |
-| Busha | not wired | SEC-aligned, direct naira deposits/withdrawals; candidate public price endpoint. |
-| Bybit P2P | not wired | Active NGN P2P marketplace (post-Binance growth); ad listings queryable → best-offer book, take median of top offers. Next candidate if a second Tier-2 signal is wanted. |
-| Bitget P2P | not wired | NGN P2P, bank-transfer rail; secondary. |
-| KuCoin / MEXC | not wired | P2P via vetted merchants; secondary. |
+Two grades, kept conceptually distinct (don't pool order-book prices with P2P
+offer medians blindly): **Group A** = exchange order-book/ticker (a real clearing
+price); **Group B** = P2P marketplaces (one observation = median of top 5–10
+sell offers). Both emit `currency="USD"`, `tier=Tier.P2P`.
 
-Play: order-book mid from Quidax/Busha and/or median of top Bybit P2P offers.
-Read-only market data only; respect each platform's API terms.
+### Verification ledger (full candidate universe, checked 2026-06-13)
 
-## Tier 3 — fintech / digital BDC published rates (hold for later)
+Columns: live-for-NGN · public access route · ToS/robots · decision. "Unreachable"
+= connect-timeout/WAF-blocked from the dev box; may differ from the droplet, but
+robots/auth/discontinued skips hold everywhere.
 
-Real but hardest to access cleanly: rates live inside apps (Grey, Raenest/Geegpay,
-Cleva; OTC apps like Yellow Card, Breet, Monica, Dtunes). Few public endpoints;
-reverse-engineering app-internal APIs is ToS-sensitive. Optional enrichment only —
-wire only platforms with a public rate page.
+| Candidate | Grp | NGN? | Public route | ToS/robots | Decision |
+|---|---|---|---|---|---|
+| **Quidax** | A | yes | ticker `app.quidax.io/api/v1/markets/tickers/usdtngn` | only blocks `?*attrc=` | **WIRED** (`quidax.py`) — order-book mid (buy+sell)/2 |
+| **Luno** | A | yes | ticker `api.luno.com/api/1/ticker?pair=USDTNGN` | `Allow: /`; documented public API | **WIRED** (`luno.py`) — order-book mid (bid+ask)/2, live vol ~658k |
+| Busha | A | yes | quotes API only (`/v1/quotes`, POST) | auth (business keys) | skip — no public ticker |
+| Roqqu | A | **no** | — | USDT/NGN trading disabled + auth | skip — pair discontinued |
+| Bitnob | A | yes | no public rate endpoint found | auth business API | skip — no public data |
+| Yellow Card | A/C | yes | `/business/rates` | 401/403 IP-whitelisted | skip — auth-gated |
+| Bitmama | A | yes | api host unreachable | — | skip — unreachable |
+| BuyCoins (Pro) | A | yes | GraphQL `getPrices` | auth (verified-user keys) | skip — auth-gated |
+| Bybit P2P | B | yes | `api2.bybit.com` web endpoint | `robots: Disallow: /` | skip — robots forbids |
+| Binance P2P | B | **no** | `/bapi/...` | robots `Disallow: /bapi/`; NGN `total:0` | skip — robots + suspended |
+| OKX P2P | B | yes | `/v3/c2c/...` | unverifiable | skip — unreachable here |
+| Bitget P2P | B | yes | `/v1/p2p/pub/...` | unverifiable | skip — unreachable here |
+| KuCoin P2P | B | yes | `/_api/otc/ad/list` | unverifiable | skip — unreachable here |
+| BingX P2P | B | yes | `api-app.bingx.com` | WAF 403 "request blocked" | skip — blocked |
+| HTX P2P | B | ? | `otc-api.huobi.pro` | unverifiable | skip — unreachable here |
+| Remitano | B | yes | `api.remitano.com` | unverifiable | skip — unreachable here |
+| Noones | B | yes | `/rest/v1/offers` (returns JSON) | `robots: Disallow: /rest/` | skip — robots forbids |
+| CoinGecko (agg) | E | yes | `/api/v3/simple/price` | `robots: Disallow: /api/v3` | skip — robots forbids |
+| **p2p.army** (agg) | E | yes | `/v1/api/*` aggregates 8 P2P venues | `X-APIKEY` required (free tier?) | skip *for now* — needs key |
+
+**Outcome: basket = 2 (Quidax + Luno, both Group A).** Every Group-B/aggregator
+route is either robots-disallowed, auth-gated, NGN-discontinued, or unreachable
+from the dev environment. Genuine USDT/NGN *order books* live almost only on
+Nigerian exchanges; global venues quote NGN only via P2P, whose endpoints are
+gated/blocked. USDT≈USD parity assumption documented below.
+
+**Highest-leverage expansion path:** [p2p.army](https://p2p.army/en/api_docs)
+with an API key — one adapter would supply Bybit/OKX/Bitget/KuCoin/MEXC/BingX/HTX
+NGN medians (Group B) at once. Secondary: re-run the probe from the droplet
+(DigitalOcean geo may reach OKX/Bitget/KuCoin/Remitano/HTX where the dev box
+times out). If P2P-median sources are added, carry an order-book-vs-median
+sub-grade so the two are not weighted identically.
+
+**USDT-parity assumption:** Group A/B sources price USDT/NGN; we treat 1 USDT ≈
+1 USD and emit `currency="USD"`. Luno also exposes USDC/NGN but it is illiquid
+(wide bid/ask, thin volume) so it is not used. Revisit if USDT depegs materially.
+
+## Tier 3 — fintech / digital BDC published rates (`Tier.FINTECH`, Phase 2)
+
+A posted buy/sell rate per app, pegged near parallel — a *third* mechanism,
+distinct from both surveys and transaction-based feeds. Mostly in-app with no
+public endpoint; reverse-engineering app internals is ToS-sensitive — do NOT.
+Wire only platforms exposing a genuine public rate page/calculator. Candidates
+to verify in Phase 2: **Monica (monica.cash)** — has a public live-rate
+calculator, best first target; **Breet** — competitive posted rate; **Grey**,
+**Cleva**, **Raenest (Geegpay)**, **Dtunes**, **Lemonade** — verify for a public
+page first. Fold Tier 3 into the tier blend once ≥2 are wired (extend
+`tier_weights`, renormalise over present tiers).
 
 ## Tier 4 — Telegram/X BDC channels (noisy, optional)
 

@@ -69,13 +69,52 @@ class TestConsensus:
         with pytest.raises(ValueError):
             compute_consensus([mid("a", 1500), mid("b", 1900, ccy="GBP")])
 
-    def test_tight_fresh_panel_high_confidence(self):
+    def test_single_tier_confidence_is_capped(self):
+        # A tight, deep, single-mechanism panel can no longer score near-perfect:
+        # one mechanism, however clean, is capped (no cross-tier corroboration).
         panel = [mid(s, r) for s, r in [("a", 1500), ("b", 1501), ("c", 1499),
                                          ("d", 1500), ("e", 1502), ("f", 1498)]]
         consensus, _ = compute_consensus(panel)
-        assert consensus.confidence > 0.9
+        # within_quality (~0.97) × single-tier cap (0.7); never exceeds the cap.
+        assert 0.6 < consensus.confidence <= 0.7
         assert 1498 <= consensus.rate <= 1502
         assert consensus.n_sources == 6
+        assert consensus.inter_tier_spread_pct is None  # only one tier present
+
+    def test_two_agreeing_tiers_beat_one_tight_tier(self):
+        # Two independent mechanisms that agree should out-score a single tight one.
+        survey = [mid(s, r, tier=Tier.AGGREGATOR)
+                  for s, r in [("a", 1500), ("b", 1501), ("c", 1499)]]
+        p2p = [mid(s, r, tier=Tier.P2P)
+               for s, r in [("x", 1500), ("y", 1501), ("z", 1499)]]
+        two_tier, _ = compute_consensus(survey + p2p)
+        one_tier, _ = compute_consensus(survey)
+        assert two_tier.confidence > one_tier.confidence
+        assert two_tier.confidence > 0.7  # exceeds the single-tier cap
+        assert two_tier.inter_tier_spread_pct == pytest.approx(0.0, abs=0.05)
+
+    def test_within_tier_rejection_isolated_across_tiers(self):
+        # The lone P2P price must NOT be evicted by a tight survey pack — the
+        # single-pool bug. Each tier rejects only within itself.
+        survey = [mid(s, r, tier=Tier.AGGREGATOR)
+                  for s, r in [("a", 1500), ("b", 1501), ("c", 1499)]]
+        p2p = [mid("p2p", 1384, tier=Tier.P2P)]
+        consensus, rejected = compute_consensus(survey + p2p)
+        assert "p2p" not in [m.source for m in rejected]
+        # P2P tier present and contributes its own sub-consensus.
+        p2p_tier = next(t for t in consensus.tiers if t.tier is Tier.P2P)
+        assert p2p_tier.rate == pytest.approx(1384, abs=0.5)
+        # 50/50 blend sits between the two mechanisms.
+        assert 1384 < consensus.rate < 1500
+
+    def test_structural_inter_tier_spread_lowers_confidence(self):
+        # A persistent survey↔P2P gap is surfaced and damps cross-tier agreement.
+        survey = [mid(s, r, tier=Tier.AGGREGATOR)
+                  for s, r in [("a", 1500), ("b", 1500), ("c", 1500)]]
+        p2p = [mid(s, r, tier=Tier.P2P) for s, r in [("x", 1380), ("y", 1380)]]
+        consensus, _ = compute_consensus(survey + p2p)
+        assert consensus.inter_tier_spread_pct == pytest.approx(-8.0, abs=0.2)
+        assert consensus.confidence < 0.3  # ~8% gap >> 3% tolerance
 
     def test_outlier_excluded_from_rate(self):
         panel = [mid("a", 1500), mid("b", 1501), mid("c", 1499), mid("wild", 1800)]
