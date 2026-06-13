@@ -1,6 +1,15 @@
 /** Typed fetchers. These types mirror src/fxengine/api/schemas.py 1:1 —
  * change them together. */
 
+export type TierReading = {
+  tier: string;
+  rate: number;
+  n_sources: number;
+  n_rejected: number;
+  dispersion: number;
+  weight: number;
+};
+
 export type Consensus = {
   currency: string;
   rate: number;
@@ -9,6 +18,8 @@ export type Consensus = {
   n_rejected: number;
   dispersion: number;
   computed_at: string;
+  inter_tier_spread_pct: number | null;
+  tiers: TierReading[];
 };
 
 export type Official = {
@@ -43,6 +54,7 @@ export type SourceReading = {
   mid: number;
   observed_at: string;
   divergence_pct: number | null;
+  rejected: boolean;
 };
 
 export type Sources = {

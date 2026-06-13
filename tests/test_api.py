@@ -2,7 +2,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fxengine.config import settings
-from fxengine.models import ConsensusRate, Observation, Side, Tier, utcnow
+from fxengine.models import (
+    ConsensusRate,
+    Observation,
+    Side,
+    Tier,
+    TierConsensus,
+    utcnow,
+)
 from fxengine.storage import Storage
 
 
@@ -24,7 +31,17 @@ def client(tmp_path, monkeypatch):
     storage.insert_official(
         [Observation("cbn", Tier.OFFICIAL, "USD", Side.MID, 1410.0, now)], ingested_at=now
     )
-    storage.insert_consensus(ConsensusRate("USD", 1502.0, 0.92, 2, 0, 0.001, now))
+    storage.insert_consensus(
+        ConsensusRate(
+            "USD", 1502.0, 0.92, 2, 1, 0.001, now,
+            inter_tier_spread_pct=0.33,
+            tiers=(
+                TierConsensus(Tier.AGGREGATOR, 1500.0, 1, 0, 0.0, 0.5),
+                TierConsensus(Tier.P2P, 1505.0, 1, 1, 0.0, 0.5),
+            ),
+            rejected_sources=("p2p",),
+        )
+    )
     storage.close()
 
     from fxengine.api.app import app
@@ -57,12 +74,25 @@ def test_history_merges_series(client):
     assert has_consensus and has_official
 
 
+def test_latest_surfaces_tiers_and_spread(client):
+    body = client.get("/api/rates/latest", params={"currency": "USD"}).json()
+    cons = body["consensus"]
+    assert cons["inter_tier_spread_pct"] == 0.33
+    tiers = {t["tier"]: t for t in cons["tiers"]}
+    assert set(tiers) == {"tier1_aggregator", "tier2_p2p"}
+    assert tiers["tier2_p2p"]["rate"] == 1505.0
+    assert tiers["tier1_aggregator"]["weight"] == 0.5
+
+
 def test_sources_divergence(client):
     body = client.get("/api/sources", params={"currency": "USD"}).json()
     assert body["consensus"] == 1502.0
     sources = {s["source"]: s for s in body["sources"]}
     assert sources["aboki"]["mid"] == 1500.0
     assert sources["aboki"]["divergence_pct"] == pytest.approx(-0.133, abs=0.01)
+    # rejected flag mirrors the consensus run's rejected_sources set.
+    assert sources["aboki"]["rejected"] is False
+    assert sources["p2p"]["rejected"] is True
 
 
 def test_unknown_currency_404(client):

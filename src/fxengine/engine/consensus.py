@@ -160,6 +160,7 @@ def compute_consensus(
             computed_at=now,
             inter_tier_spread_pct=inter_tier_spread_pct,
             tiers=tuple(sorted(tiers_out, key=lambda tc: tc.tier.value)),
+            rejected_sources=tuple(sorted(m.source for m in rejected_all)),
         ),
         rejected_all,
     )

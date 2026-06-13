@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS consensus (
     dispersion REAL NOT NULL,
     computed_at TEXT NOT NULL,
     inter_tier_spread_pct REAL,
+    rejected_sources TEXT,
     UNIQUE (currency, computed_at)
 );
 CREATE INDEX IF NOT EXISTS ix_consensus_ccy_time ON consensus (currency, computed_at);
@@ -101,6 +102,8 @@ class Storage:
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(consensus)")}
         if "inter_tier_spread_pct" not in cols:
             self.conn.execute("ALTER TABLE consensus ADD COLUMN inter_tier_spread_pct REAL")
+        if "rejected_sources" not in cols:
+            self.conn.execute("ALTER TABLE consensus ADD COLUMN rejected_sources TEXT")
         self.conn.commit()
 
     # ---------- writes (worker only) ----------
@@ -137,10 +140,11 @@ class Storage:
         self.conn.execute(
             "INSERT OR IGNORE INTO consensus "
             "(currency, rate, confidence, n_sources, n_rejected, dispersion, "
-            "computed_at, inter_tier_spread_pct) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "computed_at, inter_tier_spread_pct, rejected_sources) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (c.currency, c.rate, c.confidence, c.n_sources, c.n_rejected,
-             c.dispersion, _iso(c.computed_at), c.inter_tier_spread_pct),
+             c.dispersion, _iso(c.computed_at), c.inter_tier_spread_pct,
+             ",".join(c.rejected_sources) or None),
         )
         for tc in c.tiers:
             self.conn.execute(
