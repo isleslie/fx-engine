@@ -12,19 +12,30 @@ sensitive; keep that framing in all user-facing copy).
   pass tests and run end-to-end **on mock sources** (`FX_USE_MOCK_SOURCES=true`).
 - ✅ Droplet provisioned: DigitalOcean `fx-engine` (Ubuntu 24.04, 1GB), `deploy` user,
   Cloud Firewall 22/80/443, Docker + Compose installed.
-- ✅ Live adapters wired and verified (June 2026): CBN anchor (JSON API) + 4 Tier-1
-  (aboki, ngnrates, nairatoday, talentbase) + Quidax USDT/NGN ticker (Tier-2).
-  nairaspot skipped — rates render client-side from a robots-disallowed `/api/`.
-  First real run: USD consensus 1393.76, +2.23% over CBN, confidence 0.89.
-  Production compose now defaults `FX_USE_MOCK_SOURCES=false`; the code default
-  stays `true` so bare local runs stay offline-friendly.
-- ✅ DEPLOYED (2026-06-12): PR #1 merge auto-deployed to the droplet — secrets and
-  the `~/fx-app` bootstrap were already in place, so the pipeline ran end to end.
-  The worker ingests live sources every 30 min; the mock-era DB was wiped once
-  post-deploy so history is clean. Serving HTTP on the bare IP (`SITE_ADDRESS=:80`).
-- ⬜ NEXT (pick up any of): point a domain at the droplet and set `SITE_ADDRESS`
-  in `~/fx-app/.env` for automatic HTTPS; extend Tier-2 beyond USD (Bybit P2P
-  median would cover GBP/EUR); bonus Tier-1 sensors (fxratetoday, monierate).
+- ✅ DEPLOYED and live (since 2026-06-12): worker ingests every 30 min on the
+  droplet; production compose defaults `FX_USE_MOCK_SOURCES=false` (code default
+  stays `true` for offline local runs). Serving HTTP on the bare IP
+  (`SITE_ADDRESS=:80`). Every push to main auto-deploys.
+- ✅ Live panel (7 sources): CBN anchor (JSON API); Tier-1 surveys aboki +
+  talentbase (bespoke) and ngnrates + nairatoday (config registry); Tier-2
+  transaction-based Quidax + Luno (USDT/NGN order-book tickers, USD only).
+  nairaspot skipped (client-rendered, robots-disallowed `/api/`). Tier-3 fintech
+  verified and skipped — no app publishes its own posted rate (docs/sources.md).
+- ✅ v2 methodology retrofit shipped (2026-06-13, PRs #4–#7): tier-aware consensus
+  (survey vs transaction-based reconciled separately, then blended), per-source
+  reliability EWMA, copycat independence guard, rejection/tier/spread surfaced in
+  API + SPA. See the Architecture methodology section.
+- ⬜ NEXT — the build-out is mature; remaining work is durability + ops, then let
+  it accrue data for the research writeup:
+  1. **Backups** (top risk): the SQLite file is the only copy and now holds
+     unreconstructable reliability/correlation history. Litestream → B2, or a
+     nightly `sqlite3 .backup` offsite.
+  2. Domain + HTTPS (set `SITE_ADDRESS`); uptime/staleness monitoring
+     (UptimeRobot on `/api/health` + surface "source last seen"); Dependabot.
+  3. After weeks of runs: the analysis writeup (reliability trajectories, the
+     survey↔P2P gap, copycat findings, whether the 0.5/0.5 tier weights hold).
+  Parked/optional: deeper P2P basket via a p2p.army API key (robots/geo block the
+  direct P2P endpoints); more currencies (CAD is on every source); fxratetoday.
 
 ## Architecture (full design: docs/architecture.md)
 
@@ -37,12 +48,17 @@ caddy (TLS) → web (FastAPI, serves built SPA + /api/*) → SQLite (read)
 - **Single writer rule**: only the worker writes SQLite; the web tier opens read-only.
 - DB lives on the droplet's persistent disk via a bind mount (`./data:/data`). It is
   gitignored — this is a VPS deploy, NOT the NGX commit-back pattern.
-- Consensus methodology (src/fxengine/engine/): normalize buy/sell → per-source mids;
-  outlier rejection = median + scaled MAD (k=3.5, with zero-MAD relative-tolerance
-  fallback and a never-below-2-survivors floor); consensus = weighted mean with
-  freshness (exp half-life 90min) × agreement (1/(1+z)) weights; confidence =
-  sqrt(tightness × coverage). **This methodology is the project's value — document any
-  change in docs/architecture.md.**
+- Consensus methodology (src/fxengine/engine/) — **tier-aware**: survey and
+  transaction-based feeds measure different things, so they're reconciled
+  separately then blended, not pooled. Per currency: normalize buy/sell → mids;
+  group by tier; **within each tier** reject outliers (median + scaled MAD, k=3.5)
+  and take a weighted mid (weight = freshness[half-life 90m] × agreement[1/(1+z)] ×
+  reliability[0.5+score/2] × copycat-penalty); blend tier sub-consensuses by
+  configurable `tier_weights` (renormalized over present tiers). Confidence =
+  within-tier tightness×depth × cross-tier agreement (a lone tier is capped at
+  0.7). Per-source **reliability** is a slow EWMA vs the source's own tier; an
+  **independence guard** halves copycat survey pairs. **This methodology is the
+  project's value — document any change in docs/architecture.md.**
 
 ## Stack (decided — don't relitigate without asking)
 
@@ -55,7 +71,7 @@ TanStack Query, Recharts, Tailwind v4. Tooling: **uv** (Python), npm or pnpm (JS
 
 ```bash
 uv sync                                   # install backend deps
-uv run pytest -q                          # backend tests (60)
+uv run pytest -q                          # backend tests (79)
 uv run python -m fxengine.worker          # run worker (mock sources by default)
 uv run uvicorn fxengine.api.app:app --reload   # API on :8000
 cd frontend && npm install && npm run dev      # SPA on :5173, proxies /api → :8000
@@ -81,19 +97,22 @@ Config is env-driven via `FX_*` vars (src/fxengine/config.py). Key ones:
   (same pattern as the NGX repo). Never hit live sites in tests.
 - Idempotent inserts everywhere (`INSERT OR IGNORE` + UNIQUE constraints).
 
-## Live sources (wired June 2026 — docs/sources.md has endpoint details)
+## Live sources (docs/sources.md has the full verification ledger + endpoints)
 
-Registered in `live_adapters()` (src/fxengine/adapters/__init__.py), one module per
-source: `cbn.py` (official anchor, JSON `/api/GetAllExchangeRates`), `aboki.py`
-(3 per-currency pages), `ngnrates.py`, `nairatoday.py`, `talentbase.py` (homepage
-scrapes), `quidax.py` (USDT/NGN public ticker, USD only). nairaspot.com was skipped:
-its Next.js pages carry no rates server-side and the data API is robots-disallowed.
+Assembled in `live_adapters()` (src/fxengine/adapters/__init__.py):
+- **Bespoke modules** (custom logic): `cbn.py` (official anchor, JSON
+  `/api/GetAllExchangeRates`), `aboki.py` (3 per-currency pages), `talentbase.py`
+  (label-based per-currency tables), `quidax.py` + `luno.py` (Tier-2 USDT/NGN
+  order-book tickers, USD only).
+- **Config registry** (`config/source_registry.yaml` → `generic.py`): ngnrates,
+  nairatoday. fxratetoday is present but `enabled: false`.
 
-Adding a source: check robots.txt/ToS first (skip and note any disallow), fetch
-politely (shared client already sets UA + timeout), save a real-response fixture in
-tests/fixtures/, write the parser against the fixture, add respx tests, register in
-`live_adapters()`. Candidates not yet wired: fxratetoday, monierate (Tier 1);
-Busha, Bybit P2P median (Tier 2 — would give GBP/EUR a transaction-based signal too).
+Adding a source: check robots.txt/ToS first (skip + note any disallow). For a
+simple homepage scrape, add a registry YAML entry + `tests/fixtures/<name>.html`
+(the parametrized test auto-covers it) — no module. For custom logic, write a
+bespoke `BaseAdapter` module + respx tests and register it. Skipped/parked
+candidates (with reasons) live in docs/sources.md: nairaspot, monierate, Bybit/
+OKX/Bitget/KuCoin P2P (robots/geo), p2p.army (needs API key), Tier-3 fintech.
 
 ## Deploy
 
