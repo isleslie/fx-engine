@@ -130,9 +130,19 @@ def history(currency: str = Query("USD"), days: int = Query(30, ge=1, le=365)) -
         t = row["computed_at"]
         pt = points.setdefault(t, HistoryPoint(t=datetime.fromisoformat(t)))
         pt.tiers[row["tier"]] = row["rate"]
-    for row in storage.official_history(c, since):
-        t = row["observed_at"]
-        points.setdefault(t, HistoryPoint(t=datetime.fromisoformat(t))).official = row["rate"]
+
+    # Forward-fill the CBN anchor onto every point: it updates on its own (~daily)
+    # cadence, so carry the prevailing rate forward so each point — and thus the
+    # chart tooltip — always shows the official comparison alongside the mechanisms.
+    officials = sorted(
+        (row["observed_at"], row["rate"]) for row in storage.official_history(c, since)
+    )
+    oi, last_official = 0, None
+    for k in sorted(points):
+        while oi < len(officials) and officials[oi][0] <= k:
+            last_official = officials[oi][1]
+            oi += 1
+        points[k].official = last_official
 
     ordered = [points[k] for k in sorted(points)]
     return HistoryOut(currency=c, days=days, points=ordered)

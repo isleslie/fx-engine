@@ -1,19 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, fmtNaira, fmtPct } from "../lib/api";
 
-const TIER_LABEL: Record<string, string> = {
-  tier1_aggregator: "survey",
-  tier2_p2p: "p2p",
-  tier3_fintech: "fintech",
-};
-
 export default function ConsensusCard({ currency }: { currency: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["latest", currency],
     queryFn: () => api.latest(currency),
   });
 
-  if (isLoading) return <Panel>Loading latest consensus…</Panel>;
+  if (isLoading) return <Panel>Loading latest rates…</Panel>;
   if (isError || !data?.consensus)
     return (
       <Panel>
@@ -22,93 +16,76 @@ export default function ConsensusCard({ currency }: { currency: string }) {
       </Panel>
     );
 
-  const { consensus, official, spread_abs, spread_pct } = data;
-  const confidencePct = Math.round(consensus.confidence * 100);
+  const { consensus, official } = data;
+  const parallel = consensus.tiers.find((t) => t.tier === "tier1_aggregator");
+  const p2p = consensus.tiers.find((t) => t.tier === "tier2_p2p");
+  const cbn = official?.rate ?? null;
+  const vsCbn = (rate: number) =>
+    cbn != null ? ((rate - cbn) / cbn) * 100 : null;
+
+  const tiles = [
+    {
+      key: "parallel",
+      label: "Parallel (survey)",
+      rate: parallel?.rate ?? null,
+      n: parallel?.n_sources ?? null,
+      spread: parallel ? vsCbn(parallel.rate) : null,
+    },
+    {
+      key: "p2p",
+      label: "P2P (USDT/NGN)",
+      rate: p2p?.rate ?? null,
+      n: p2p?.n_sources ?? null,
+      spread: p2p ? vsCbn(p2p.rate) : null,
+    },
+    {
+      key: "cbn",
+      label: `Official (${official?.source ?? "CBN"})`,
+      rate: cbn,
+      n: null,
+      spread: null,
+    },
+  ];
 
   return (
     <section
-      aria-label="Latest consensus rate"
-      className="grid gap-6 rounded-lg border border-line bg-ink-2 p-6 sm:grid-cols-[1fr_auto]"
+      aria-label="Latest rates by mechanism"
+      className="rounded-lg border border-line bg-ink-2 p-6"
     >
-      <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="font-data text-[11px] uppercase tracking-widest text-muted">
-          Parallel consensus · {currency}/NGN
+          {currency}/NGN · rates by mechanism
         </p>
-        <p className="font-data mt-2 text-5xl font-semibold text-bone sm:text-6xl">
-          {fmtNaira(consensus.rate)}
-        </p>
-        <p className="mt-3 text-sm text-muted">
-          {consensus.n_sources} sources agreed
-          {consensus.n_rejected > 0 && (
-            <span className="text-oxide">
-              {" "}
-              · {consensus.n_rejected} rejected as outliers
-            </span>
-          )}
+        <p className="text-xs text-muted">
+          confidence{" "}
+          <span className="text-brass">
+            {Math.round(consensus.confidence * 100)}%
+          </span>
           {" · "}
           <time dateTime={consensus.computed_at}>
             {new Date(consensus.computed_at).toLocaleString()}
           </time>
         </p>
-
-        {consensus.tiers.length > 1 && (
-          <div className="mt-4 border-t border-line pt-3">
-            <p className="font-data text-[11px] uppercase tracking-widest text-muted">
-              By mechanism
-            </p>
-            <div className="font-data mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-              {consensus.tiers.map((t) => (
-                <span key={t.tier} className="text-chalk">
-                  {TIER_LABEL[t.tier] ?? t.tier}{" "}
-                  <span className="text-bone">{fmtNaira(t.rate)}</span>
-                  <span className="text-muted">
-                    {" "}
-                    ·{t.n_sources}src ·w{t.weight.toFixed(2)}
-                  </span>
-                </span>
-              ))}
-            </div>
-            {consensus.inter_tier_spread_pct != null && (
-              <p className="mt-2 text-sm text-muted">
-                survey→p2p gap{" "}
-                <span className="text-oxide">
-                  {fmtPct(consensus.inter_tier_spread_pct)}
-                </span>{" "}
-                — transaction vs survey pricing
-              </p>
-            )}
-          </div>
-        )}
       </div>
 
-      <dl className="grid content-start gap-4 sm:text-right">
-        <div>
-          <dt className="font-data text-[11px] uppercase tracking-widest text-muted">
-            Confidence
-          </dt>
-          <dd className="font-data text-2xl text-brass">{confidencePct}%</dd>
-          <meter
-            className="mt-1 h-1 w-32"
-            min={0}
-            max={100}
-            value={confidencePct}
-            aria-label={`Confidence ${confidencePct} percent`}
-          />
-        </div>
-        {official && spread_abs != null && spread_pct != null && (
-          <div>
-            <dt className="font-data text-[11px] uppercase tracking-widest text-muted">
-              vs official ({official.source})
-            </dt>
-            <dd className="font-data text-lg text-chalk">
-              {fmtNaira(official.rate)}
-            </dd>
-            <dd className="font-data text-sm text-oxide">
-              spread {fmtNaira(spread_abs)} ({fmtPct(spread_pct)})
-            </dd>
+      <div className="mt-5 grid gap-6 sm:grid-cols-3">
+        {tiles.map((t) => (
+          <div key={t.key}>
+            <p className="font-data text-[11px] uppercase tracking-widest text-muted">
+              {t.label}
+            </p>
+            <p className="font-data mt-1 text-3xl font-semibold text-bone sm:text-4xl">
+              {t.rate != null ? fmtNaira(t.rate) : "—"}
+            </p>
+            <p className="mt-1 h-4 text-xs text-muted">
+              {t.spread != null && (
+                <span className="text-oxide">{fmtPct(t.spread)} vs CBN</span>
+              )}
+              {t.n != null && <span> · {t.n} src</span>}
+            </p>
           </div>
-        )}
-      </dl>
+        ))}
+      </div>
     </section>
   );
 }

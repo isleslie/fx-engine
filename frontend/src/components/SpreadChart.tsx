@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api } from "../lib/api";
+import { api, fmtNaira } from "../lib/api";
 
 export default function SpreadChart({
   currency,
@@ -76,6 +76,9 @@ export default function SpreadChart({
                 fontFamily: "var(--font-data)",
                 fontSize: 12,
               }}
+              formatter={(value) =>
+                value == null ? "—" : fmtNaira(Number(value))
+              }
             />
             <Legend
               wrapperStyle={{ fontSize: 12, fontFamily: "var(--font-data)" }}
@@ -96,16 +99,6 @@ export default function SpreadChart({
               stroke="var(--color-oxide)"
               dot={false}
               strokeWidth={2}
-              connectNulls
-            />
-            <Line
-              type="monotone"
-              dataKey="consensus"
-              name="blended consensus"
-              stroke="var(--color-muted)"
-              strokeDasharray="4 3"
-              dot={false}
-              strokeWidth={1.5}
               connectNulls
             />
             <Line
