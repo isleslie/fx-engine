@@ -34,6 +34,8 @@ export default function SpreadChart({
 
   const points = data.points.map((p) => ({
     ...p,
+    parallel: p.tiers?.tier1_aggregator ?? null,
+    p2p: p.tiers?.tier2_p2p ?? null,
     label: new Date(p.t).toLocaleDateString("en-NG", {
       month: "short",
       day: "numeric",
@@ -46,7 +48,7 @@ export default function SpreadChart({
       className="rounded-lg border border-line bg-ink-2 p-6"
     >
       <p className="font-data text-[11px] uppercase tracking-widest text-muted">
-        Consensus vs official — last {days} days
+        Rate by mechanism vs official — last {days} days
       </p>
       <div className="mt-4 h-64">
         <ResponsiveContainer width="100%" height="100%">
@@ -80,11 +82,30 @@ export default function SpreadChart({
             />
             <Line
               type="monotone"
-              dataKey="consensus"
-              name="parallel consensus"
+              dataKey="parallel"
+              name="parallel (survey)"
               stroke="var(--color-brass)"
               dot={false}
               strokeWidth={2}
+              connectNulls
+            />
+            <Line
+              type="monotone"
+              dataKey="p2p"
+              name="p2p (USDT/NGN)"
+              stroke="var(--color-oxide)"
+              dot={false}
+              strokeWidth={2}
+              connectNulls
+            />
+            <Line
+              type="monotone"
+              dataKey="consensus"
+              name="blended consensus"
+              stroke="var(--color-muted)"
+              strokeDasharray="4 3"
+              dot={false}
+              strokeWidth={1.5}
               connectNulls
             />
             <Line

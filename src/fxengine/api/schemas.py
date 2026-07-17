@@ -45,8 +45,9 @@ class LatestOut(BaseModel):
 
 class HistoryPoint(BaseModel):
     t: datetime
-    consensus: float | None = None
+    consensus: float | None = None  # blended
     official: float | None = None
+    tiers: dict[str, float] = {}  # per-mechanism sub-consensus at this point
 
 
 class HistoryOut(BaseModel):

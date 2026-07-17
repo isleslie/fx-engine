@@ -249,6 +249,15 @@ class Storage:
             (currency, _iso(since)),
         ).fetchall()
 
+    def tier_consensus_history(self, currency: str, since: datetime) -> list[sqlite3.Row]:
+        """Per-tier sub-consensus over time, so the chart can plot each mechanism
+        (parallel survey, P2P) as its own series alongside the blended line."""
+        return self.conn.execute(
+            "SELECT tier, rate, computed_at FROM tier_consensus "
+            "WHERE currency = ? AND computed_at >= ? ORDER BY computed_at",
+            (currency, _iso(since)),
+        ).fetchall()
+
     def official_history(self, currency: str, since: datetime) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT * FROM official WHERE currency = ? AND observed_at >= ? ORDER BY observed_at",

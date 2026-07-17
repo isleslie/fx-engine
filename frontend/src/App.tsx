@@ -51,7 +51,9 @@ export default function App() {
         are survey-based estimates, not official quotes — this is not a rate to
         transact on and not financial advice. Methodology:{" "}
         <span className="font-data">
-          median + MAD outlier rejection, freshness × agreement weighting
+          tier-aware consensus — survey and P2P mechanisms reconciled separately
+          then blended; MAD outlier rejection, freshness × agreement ×
+          reliability weighting
         </span>
         .
       </footer>
