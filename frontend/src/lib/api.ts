@@ -40,6 +40,7 @@ export type HistoryPoint = {
   t: string;
   consensus: number | null;
   official: number | null;
+  tiers: Record<string, number>;
 };
 
 export type History = {

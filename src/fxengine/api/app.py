@@ -126,6 +126,10 @@ def history(currency: str = Query("USD"), days: int = Query(30, ge=1, le=365)) -
     for row in storage.consensus_history(c, since):
         t = row["computed_at"]
         points.setdefault(t, HistoryPoint(t=datetime.fromisoformat(t))).consensus = row["rate"]
+    for row in storage.tier_consensus_history(c, since):
+        t = row["computed_at"]
+        pt = points.setdefault(t, HistoryPoint(t=datetime.fromisoformat(t)))
+        pt.tiers[row["tier"]] = row["rate"]
     for row in storage.official_history(c, since):
         t = row["observed_at"]
         points.setdefault(t, HistoryPoint(t=datetime.fromisoformat(t))).official = row["rate"]

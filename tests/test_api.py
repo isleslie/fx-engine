@@ -74,6 +74,10 @@ def test_history_merges_series(client):
     has_consensus = any(p["consensus"] for p in body["points"])
     has_official = any(p["official"] for p in body["points"])
     assert has_consensus and has_official
+    # per-tier series present so the chart can plot parallel + p2p separately
+    tiers = next((p["tiers"] for p in body["points"] if p["tiers"]), {})
+    assert tiers.get("tier1_aggregator") == 1500.0
+    assert tiers.get("tier2_p2p") == 1505.0
 
 
 def test_latest_surfaces_tiers_and_spread(client):
